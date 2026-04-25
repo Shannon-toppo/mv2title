@@ -3,7 +3,7 @@ def init():
     global client
     client = OpenAI(
         api_key="hogehoge", # ローカルサーバーなので適当なキーでOK
-        base_url="http://127.0.0.1:1234/v1"
+        base_url="http://127.0.0.1:1234/v1/"
     )
 
 def send_message(prompt):
@@ -13,7 +13,6 @@ def send_message(prompt):
         messages=[{"role": "user", "content": prompt}]
     )
 
-
 # init()
-# send_message()
+# print(send_message("Hello, world!"))
 # print(response.choices[0].message.content)
