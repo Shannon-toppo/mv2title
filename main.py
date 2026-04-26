@@ -1,7 +1,5 @@
 import json
-import re
 import conect
-
 
 
 def edit_title(arr):
@@ -13,7 +11,7 @@ def edit_title(arr):
     
     for i in range(0,len(arr_2),sprit_num):
         reslte.append(arr_2[i:i+sprit_num])
-    
+    print(arr_2)
     return arr_2
 
 def send(prompt):
@@ -36,24 +34,6 @@ def list_search(arr, keyword_list):
     # print(keyword_list)
     # print(result)
     return result
-
-def res_check_old(input_text, response):
-    try:
-        res_json = json.loads(response)
-        if not len(input_text) == len(res_json):
-            print("Error: The number of input titles does not match the number of output titles.")
-            print(f"Input length: {len(input_text)}, Output length: {len(res_json)}")
-            return False
-        else:
-            for i in list_search(input_text, list(res_json)):
-                if not i:
-                    print("Error: One or more input titles were not found in the output.",i)
-                    return False
-                else:
-                    return True
-    except json.JSONDecodeError:
-        print("JSON Decode Error: Invalid JSON format.")
-        return False
 
 def res_check(input_text, response):
     if not len(input_text) == len(response):
