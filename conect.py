@@ -1,4 +1,6 @@
 from openai import OpenAI
+
+
 def init():
     global client
     client = OpenAI(
@@ -12,7 +14,3 @@ def send_message(prompt):
         model="gemma-4-e2b-it",
         messages=[{"role": "user", "content": prompt}]
     )
-
-# init()
-# print(send_message("Hello, world!"))
-# print(response.choices[0].message.content)
