@@ -8,7 +8,7 @@ _system_prompt = None
 
 def init(
     api_key="hogehoge",
-    base_url="http://127.0.0.1:1234/v1/",
+    base_url="http://127.0.0.1:8080/v1/",
     system_prompt="あなたはタイトル分類の専門家です。与えられたMVのタイトルから曲名を抜き出してください。出力はリスト形式([要素1,要素2])で行い、それ以外は出力しないでください。"
     ):
     """
