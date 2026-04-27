@@ -1,19 +1,23 @@
 from openai import OpenAI
+from dotenv import load_dotenv
+import os
+
 
 # グローバル変数
 client = None
 response = None
 _system_prompt = None
 
+#.envファイルの読み込み
+load_dotenv()
 
-def init(
-    api_key="hogehoge",
-    base_url="http://127.0.0.1:8080/v1/",
-    system_prompt="あなたはタイトル分類の専門家です。与えられたMVのタイトルから曲名を抜き出してください。出力はリスト形式([要素1,要素2])で行い、それ以外は出力しないでください。"
-    ):
+key = os.getenv("API_KEY")
+url = os.getenv("BASE_URL")
+sys_pmt = os.getenv("SYSTEM_PROMPT")
+
+def init(api_key=key, base_url=url, system_prompt=sys_pmt):
     """
     クライアント初期化
-
     Args:
         api_key (str): APIキー。ローカルサーバーなら適当で可
         base_url (str): APIのベースURL

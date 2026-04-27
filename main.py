@@ -107,4 +107,4 @@ if __name__ == "__main__":
         "ヒューマとニズム-Hata"
     ]
 
-    print(main(test_list_2))
+    print(main(test_list_2,batch_size=5,bypass_check=False))
