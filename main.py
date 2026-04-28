@@ -96,6 +96,7 @@ if __name__ == "__main__":
     test_list_2 = [
         "暴飲暴食P 「うそつきマカロン」feat. 重音テト ",
         "あんずの花/ すりぃ feat.ねね(Official Music Video)",
+        "【初音ミク】幸福でも不幸でもない平凡で幸福な日々と幸福でも不幸でもある非凡で不幸な日々【オリジナル曲】by HaTa",
         "ヨルシカ「ただ君に晴れ」Music Video",
         "[self cover] The Beast. /スペクタルP feat 可不",
         "MIMI - サイエンス (feat.重音テトSV)",
