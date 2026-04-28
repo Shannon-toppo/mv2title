@@ -3,6 +3,7 @@ import conect
 from dotenv import load_dotenv
 import os
 
+
 def edit_title(arr):
     """番号を付けたタイトル一覧（例: 1.タイトル）を返します。"""
     return [f"{i+1}.{title}" for i, title in enumerate(arr)]
@@ -88,6 +89,7 @@ def main(text, batch_size=10, bypass_check=False):
         return responses
     else:
         return "Failure: The output titles are not valid or do not match the input titles."
+
 
 
 if __name__ == "__main__":
