@@ -8,19 +8,19 @@ except ImportError:
     import utils    # type: ignore
 
 
-def _send_batch_raw(batch):
+def _send_batch_raw(batch: list[str]) -> str | None:
     """connect モジュールに生のメッセージを送り、raw response を返す（内部用）。"""
     response = connect.send_message(" ".join(batch))
     return response.choices[0].message.content
 
 
-def send_batches(prompts, batch_size=10, debug=False):
+def send_batches(prompts: list[str], batch_size: int = 10, debug: bool = False) -> list[str]:
     """prompts (list of str) を batch_size ごとに送信し、すべての応答を平坦なリストとして返す。
 
     応答が Python リテラルのリスト表現なら ast.literal_eval でパースし、そうでなければカンマ区切りで分割して補正します。
     """
-    all_responses = []
-    raw = ""
+    all_responses: list[str] = []
+    raw: str | None = ""
     for batch in utils.chunk_list(prompts, batch_size):
         raw = _send_batch_raw(batch)
         parsed = None
@@ -33,7 +33,7 @@ def send_batches(prompts, batch_size=10, debug=False):
             parsed = None
 
         # フォールバック: 角括弧を削ってカンマで分割
-        s = raw.strip()
+        s = (raw or "").strip()
         if s.startswith("[") and s.endswith("]"):
             s = s[1:-1]
         parts = [p.strip().strip("'\"") for p in s.split(",") if p.strip()]
@@ -44,8 +44,8 @@ def send_batches(prompts, batch_size=10, debug=False):
     return all_responses
 
 
-def list_search(arr, keyword_list):
-    result = []
+def list_search(arr: list[str], keyword_list: list[str]) -> list[bool]:
+    result: list[bool] = []
     for item in arr:
         found = False
         for keyword in keyword_list:
@@ -56,7 +56,7 @@ def list_search(arr, keyword_list):
     return result
 
 
-def res_check(input_text, response, debug):
+def res_check(input_text: list[str], response: list[str], debug: bool) -> bool:
     """input_text（元タイトルリスト）と response（出力タイトルリスト）を比較して妥当性を返す。"""
     if len(input_text) != len(response):
         if debug:
@@ -75,7 +75,12 @@ def res_check(input_text, response, debug):
     return False
 
 
-def main(text, batch_size=10, bypass_check=False, debug_mode=False):
+def main(
+    text: list[str],
+    batch_size: int = 10,
+    bypass_check: bool = False,
+    debug_mode: bool = False,
+) -> list[str] | str:
     """text: list of original titles. 戻り値: 応答タイトルのリストまたは失敗メッセージ文字列。"""
     connect.init()
     prompts = utils.edit_title(text)

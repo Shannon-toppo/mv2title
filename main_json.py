@@ -5,6 +5,7 @@ main_list.py を参考にしつつ、LLM の出力を JSON 配列として受け
 import json
 import ast
 import logging
+from typing import Any
 
 try:
 	from . import connect
@@ -16,7 +17,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _make_json_prompt(batch):
+def _make_json_prompt(batch: list[str]) -> str:
 	items = "\n".join(batch)
 	p = (
 		"以下は番号付きのタイトル一覧です。\n"
@@ -29,12 +30,12 @@ def _make_json_prompt(batch):
 	return p
 
 
-def _send_batch_raw(batch):
+def _send_batch_raw(batch: list[str]) -> str | None:
 	response = connect.send_message(_make_json_prompt(batch))
 	return response.choices[0].message.content
 
 
-def _extract_json_substring(s):
+def _extract_json_substring(s: str) -> str | None:
 	start = s.find("[")
 	end = s.rfind("]")
 	if start != -1 and end != -1 and end > start:
@@ -42,7 +43,7 @@ def _extract_json_substring(s):
 	return None
 
 
-def _parse_json_response(raw, debug=False):
+def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 	if raw is None:
 		return None
 	s = raw.strip()
@@ -72,8 +73,10 @@ def _parse_json_response(raw, debug=False):
 			return parts
 
 
-def send_batches_json(prompts, batch_size=10, debug=False):
-	all_objs = []
+def send_batches_json(
+	prompts: list[str], batch_size: int = 10, debug: bool = False
+) -> list[dict[str, Any]]:
+	all_objs: list[dict[str, Any]] = []
 	for batch in utils.chunk_list(prompts, batch_size):
 		raw = _send_batch_raw(batch)
 		parsed = _parse_json_response(raw, debug=debug)
@@ -88,7 +91,7 @@ def send_batches_json(prompts, batch_size=10, debug=False):
 		else:
 			items = list(parsed)
 
-		normalized = []
+		normalized: list[dict[str, Any]] = []
 		for idx, item in enumerate(items):
 			if isinstance(item, dict):
 				obj = item.copy()
@@ -119,8 +122,12 @@ def send_batches_json(prompts, batch_size=10, debug=False):
 	return all_objs
 
 
-def res_check_json(input_text, response, debug=False):
-	validated = [obj.copy() for obj in response]
+def res_check_json(
+	input_text: list[str],
+	response: list[dict[str, Any]],
+	debug: bool = False,
+) -> tuple[bool, list[dict[str, Any]]]:
+	validated: list[dict[str, Any]] = [obj.copy() for obj in response]
 
 	if len(input_text) != len(response):
 		if debug:
@@ -132,7 +139,7 @@ def res_check_json(input_text, response, debug=False):
 			obj["valid"] = False
 		return False, validated
 
-	ok_list = []
+	ok_list: list[bool] = []
 	for i, obj in enumerate(validated):
 		orig = obj.get("original", "")
 		# 比較: 少なくとも一方が他方を含む形で一致していることを期待する
@@ -151,7 +158,12 @@ def res_check_json(input_text, response, debug=False):
 	return all_ok, validated
 
 
-def main(text, batch_size=10, bypass_check=False, debug_mode=False):
+def main(
+	text: list[str],
+	batch_size: int = 10,
+	bypass_check: bool = False,
+	debug_mode: bool = False,
+) -> list[dict[str, Any]]:
 	prompts = utils.edit_title(text)
 	responses = send_batches_json(prompts, batch_size=batch_size, debug=debug_mode)
 	ok, validated = res_check_json(text, responses, debug_mode)

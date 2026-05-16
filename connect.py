@@ -1,19 +1,24 @@
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 from dotenv import load_dotenv
 import os
 
 
-client = None
-_system_prompt = None
+client: OpenAI | None = None
+_system_prompt: str | None = None
 
 load_dotenv()
 
-key = os.getenv("API_KEY")
-url = os.getenv("BASE_URL")
-sys_pmt = os.getenv("SYSTEM_PROMPT")
+key: str | None = os.getenv("API_KEY")
+url: str | None = os.getenv("BASE_URL")
+sys_pmt: str | None = os.getenv("SYSTEM_PROMPT")
 
 
-def init(api_key=key, base_url=url, system_prompt=sys_pmt):
+def init(
+    api_key: str | None = key,
+    base_url: str | None = url,
+    system_prompt: str | None = sys_pmt,
+) -> None:
     """
     クライアント初期化
     Args:
@@ -29,18 +34,18 @@ def init(api_key=key, base_url=url, system_prompt=sys_pmt):
     )
 
 
-def set_system_prompt(prompt):
+def set_system_prompt(prompt: str | None) -> None:
     """グローバルな system プロンプトを設定する。"""
     global _system_prompt
     _system_prompt = prompt
 
 
-def get_system_prompt():
+def get_system_prompt() -> str | None:
     """現在のグローバル system プロンプトを返す。"""
     return _system_prompt
 
 
-def send_message(prompt, system_prompt=None):
+def send_message(prompt: str, system_prompt: str | None = None) -> ChatCompletion:
     """
     メッセージを送信する。
 
@@ -51,7 +56,7 @@ def send_message(prompt, system_prompt=None):
     if client is None:
         raise RuntimeError("connect.init() を先に呼んでください。")
     sp = system_prompt if system_prompt is not None else _system_prompt
-    messages = []
+    messages: list[dict[str, str]] = []
     if sp:
         messages.append({"role": "system", "content": sp})
     messages.append({"role": "user", "content": prompt})
