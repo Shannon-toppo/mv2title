@@ -21,7 +21,7 @@ LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-commun
 | オプション名 | 初期値 | 備考 |
 |:------------|:-----:|:-----|
 |batch_size|10|入力リストが長い場合に、いくつで分割するかを選択できます。
-|bypass_check|False|LLMからの返答が妥当性の確認をバイパスするオプションです。
+|bypass_check|False|LLMからの返答の妥当性の確認をバイパスするオプションです。
 
 ### 検証ロジック
 以下のすべての項目を満たしたときに、出力が正しいと判断します。
