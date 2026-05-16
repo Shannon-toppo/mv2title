@@ -4,6 +4,7 @@ main_list.py を参考にしつつ、LLM の出力を JSON 配列として受け
 """
 import json
 import ast
+import logging
 
 try:
 	from . import connect
@@ -11,6 +12,8 @@ try:
 except ImportError:
 	import connect  # type: ignore
 	import utils    # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 def _make_json_prompt(batch):
@@ -54,7 +57,7 @@ def _parse_json_response(raw, debug=False):
 				return data
 			except Exception:
 				if debug:
-					print("[DEBUG] JSON parsing failed even after extracting substring")
+					logger.debug("JSON parsing failed even after extracting substring")
 		# フォールバック: Python リテラル風やカンマ区切りの文字列リストを処理
 		try:
 			parsed = ast.literal_eval(s)
@@ -76,6 +79,7 @@ def send_batches_json(prompts, batch_size=10, debug=False):
 		parsed = _parse_json_response(raw, debug=debug)
 
 		if parsed is None:
+			logger.warning("Batch parse returned None, skipping %d items: %s", len(batch), batch)
 			continue
 
 		# parsed がリストか辞書か文字列リストかを判定して正規化
@@ -109,50 +113,51 @@ def send_batches_json(prompts, batch_size=10, debug=False):
 
 		all_objs.extend(normalized)
 		if debug:
-			print(f"[DEBUG] raw: {raw}")
-			print(f"[DEBUG] parsed items: {normalized}")
+			logger.debug("raw: %s", raw)
+			logger.debug("parsed items: %s", normalized)
 
 	return all_objs
 
 
 def res_check_json(input_text, response, debug=False):
+	validated = [obj.copy() for obj in response]
+
 	if len(input_text) != len(response):
 		if debug:
-			print("Error: The number of input titles does not match the number of output items.")
-			print(f"Input length: {len(input_text)}, Output length: {len(response)}")
-		return False
+			logger.debug(
+				"Error: The number of input titles does not match the number of output items. "
+				"Input length: %d, Output length: %d", len(input_text), len(response)
+			)
+		for obj in validated:
+			obj["valid"] = False
+		return False, validated
 
 	ok_list = []
-	for i, obj in enumerate(response):
+	for i, obj in enumerate(validated):
 		orig = obj.get("original", "")
 		# 比較: 少なくとも一方が他方を含む形で一致していることを期待する
-		if input_text[i] in orig or orig in input_text[i]:
-			ok_list.append(True)
-		else:
-			ok_list.append(False)
+		ok = input_text[i] in orig or orig in input_text[i]
+		obj["valid"] = ok
+		ok_list.append(ok)
 
-	if all(ok_list):
-		return True
-
-	for idx, ok in enumerate(ok_list):
-		if not ok and debug:
-			print(f"Error: Input title not found in output at index {idx}: {input_text[idx]} vs {response[idx].get('original')}")
-	return False
+	all_ok = all(ok_list)
+	if not all_ok and debug:
+		for idx, ok in enumerate(ok_list):
+			if not ok:
+				logger.debug(
+					"Error: Input title not found in output at index %d: %s vs %s",
+					idx, input_text[idx], validated[idx].get("original")
+				)
+	return all_ok, validated
 
 
 def main(text, batch_size=10, bypass_check=False, debug_mode=False):
-	connect.init()
 	prompts = utils.edit_title(text)
 	responses = send_batches_json(prompts, batch_size=batch_size, debug=debug_mode)
-	if bypass_check:
-		return responses
-	result = res_check_json(text, responses, debug_mode)
-	if result:
-		return responses
-	else:
-		if debug_mode:
-			print("Failure: The output items are not valid or do not match the input titles.")
-		return "Error"
+	ok, validated = res_check_json(text, responses, debug_mode)
+	if bypass_check or ok:
+		return validated
+	raise ValueError("Output does not match input titles.")
 
 
 if __name__ == "__main__":
@@ -175,5 +180,6 @@ if __name__ == "__main__":
 		"月詠み『花と散る』Music Video"
 	]
 
+	connect.init()
 	out = main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False)
 	print(json.dumps(out, ensure_ascii=False, indent=2))
