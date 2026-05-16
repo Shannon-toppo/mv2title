@@ -171,7 +171,8 @@ if __name__ == "__main__":
 		"『お砂糖哀歌』 / feat. 初音ミク",
 		"『恋しくなったら手を叩こう』/ MIMI feat.花鏡紅璃",
 		"『恋しくなったら手を叩こう』 / feat.重音テトSV",
-		"「ヒューマとニズム」-Hata"
+		"「ヒューマとニズム」-Hata",
+		"月詠み『花と散る』Music Video"
 	]
 
 	out = main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False)
