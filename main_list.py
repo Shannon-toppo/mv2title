@@ -1,24 +1,17 @@
 import ast
-from dotenv import load_dotenv
-import os
-import conect
 
-
-def edit_title(arr):
-    """番号を付けたタイトル一覧（例: 1.タイトル）を返します。"""
-    return [f"{i+1}.{title}" for i, title in enumerate(arr)]
-
-
-def chunk_list(lst, size):
-    """lst を size 件ずつのサブリストに分割して yield します。"""
-    for i in range(0, len(lst), size):
-        yield lst[i:i+size]
+try:
+    from . import connect
+    from . import utils
+except ImportError:
+    import connect  # type: ignore
+    import utils    # type: ignore
 
 
 def _send_batch_raw(batch):
     """connect モジュールに生のメッセージを送り、raw response を返す（内部用）。"""
-    conect.send_message(" ".join(batch))
-    return conect.response.choices[0].message.content
+    response = connect.send_message(" ".join(batch))
+    return response.choices[0].message.content
 
 
 def send_batches(prompts, batch_size=10, debug=False):
@@ -26,9 +19,9 @@ def send_batches(prompts, batch_size=10, debug=False):
 
     応答が Python リテラルのリスト表現なら ast.literal_eval でパースし、そうでなければカンマ区切りで分割して補正します。
     """
-    conect.init()
     all_responses = []
-    for batch in chunk_list(prompts, batch_size):
+    raw = ""
+    for batch in utils.chunk_list(prompts, batch_size):
         raw = _send_batch_raw(batch)
         parsed = None
         try:
@@ -63,7 +56,7 @@ def list_search(arr, keyword_list):
     return result
 
 
-def res_check(input_text, response,debug):
+def res_check(input_text, response, debug):
     """input_text（元タイトルリスト）と response（出力タイトルリスト）を比較して妥当性を返す。"""
     if len(input_text) != len(response):
         if debug:
@@ -84,7 +77,8 @@ def res_check(input_text, response,debug):
 
 def main(text, batch_size=10, bypass_check=False, debug_mode=False):
     """text: list of original titles. 戻り値: 応答タイトルのリストまたは失敗メッセージ文字列。"""
-    prompts = edit_title(text)
+    connect.init()
+    prompts = utils.edit_title(text)
     responses = send_batches(prompts, batch_size=batch_size, debug=debug_mode)
     if bypass_check:
         return responses
@@ -95,7 +89,6 @@ def main(text, batch_size=10, bypass_check=False, debug_mode=False):
         if debug_mode:
             print("Failure: The output titles are not valid or do not match the input titles.")
         return "Error"
-
 
 
 if __name__ == "__main__":
@@ -117,4 +110,4 @@ if __name__ == "__main__":
         "「ヒューマとニズム」-Hata"
     ]
 
-    print(main(test_list_2,batch_size=10,bypass_check=False,debug_mode=False))
+    print(main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False))

@@ -3,17 +3,15 @@ from dotenv import load_dotenv
 import os
 
 
-# グローバル変数
 client = None
-response = None
 _system_prompt = None
 
-#.envファイルの読み込み
 load_dotenv()
 
 key = os.getenv("API_KEY")
 url = os.getenv("BASE_URL")
 sys_pmt = os.getenv("SYSTEM_PROMPT")
+
 
 def init(api_key=key, base_url=url, system_prompt=sys_pmt):
     """
@@ -26,7 +24,7 @@ def init(api_key=key, base_url=url, system_prompt=sys_pmt):
     global client, _system_prompt
     _system_prompt = system_prompt
     client = OpenAI(
-        api_key=api_key,  # ローカルサーバーなので適当なキーでOK
+        api_key=api_key,
         base_url=base_url
     )
 
@@ -50,15 +48,15 @@ def send_message(prompt, system_prompt=None):
         prompt (str): ユーザーメッセージ
         system_prompt (str|None): 呼び出しごとに指定する system プロンプト（省略時はグローバルを使用）
     """
-    global response
+    if client is None:
+        raise RuntimeError("connect.init() を先に呼んでください。")
     sp = system_prompt if system_prompt is not None else _system_prompt
     messages = []
     if sp:
         messages.append({"role": "system", "content": sp})
     messages.append({"role": "user", "content": prompt})
 
-    response = client.chat.completions.create(
+    return client.chat.completions.create(
         model="gemma-4-e2b-it",
         messages=messages
     )
-    return response

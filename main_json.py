@@ -3,20 +3,14 @@
 main_list.py を参考にしつつ、LLM の出力を JSON 配列として受け取り処理します。
 """
 import json
-import re
-import conect
-from dotenv import load_dotenv
-import os
+import ast
 
-
-def edit_title(arr):
-	"""番号を付けたタイトル一覧（例: 1.タイトル）を返します。"""
-	return [f"{i+1}.{title}" for i, title in enumerate(arr)]
-
-
-def chunk_list(lst, size):
-	for i in range(0, len(lst), size):
-		yield lst[i:i+size]
+try:
+	from . import connect
+	from . import utils
+except ImportError:
+	import connect  # type: ignore
+	import utils    # type: ignore
 
 
 def _make_json_prompt(batch):
@@ -33,8 +27,8 @@ def _make_json_prompt(batch):
 
 
 def _send_batch_raw(batch):
-	conect.send_message(_make_json_prompt(batch))
-	return conect.response.choices[0].message.content
+	response = connect.send_message(_make_json_prompt(batch))
+	return response.choices[0].message.content
 
 
 def _extract_json_substring(s):
@@ -63,9 +57,6 @@ def _parse_json_response(raw, debug=False):
 					print("[DEBUG] JSON parsing failed even after extracting substring")
 		# フォールバック: Python リテラル風やカンマ区切りの文字列リストを処理
 		try:
-			# try ast.literal_eval style (simple):
-			import ast
-
 			parsed = ast.literal_eval(s)
 			return parsed
 		except Exception:
@@ -79,9 +70,8 @@ def _parse_json_response(raw, debug=False):
 
 
 def send_batches_json(prompts, batch_size=10, debug=False):
-	conect.init()
 	all_objs = []
-	for batch in chunk_list(prompts, batch_size):
+	for batch in utils.chunk_list(prompts, batch_size):
 		raw = _send_batch_raw(batch)
 		parsed = _parse_json_response(raw, debug=debug)
 
@@ -99,10 +89,7 @@ def send_batches_json(prompts, batch_size=10, debug=False):
 			if isinstance(item, dict):
 				obj = item.copy()
 				if "index" not in obj:
-					try:
-						obj["index"] = int(obj.get("index", idx + 1))
-					except Exception:
-						obj["index"] = idx + 1
+					obj["index"] = idx + 1
 				if "original" not in obj:
 					# try to recover from batch using index
 					obj["original"] = batch[obj["index"] - 1] if 0 <= obj["index"] - 1 < len(batch) else ""
@@ -154,7 +141,8 @@ def res_check_json(input_text, response, debug=False):
 
 
 def main(text, batch_size=10, bypass_check=False, debug_mode=False):
-	prompts = edit_title(text)
+	connect.init()
+	prompts = utils.edit_title(text)
 	responses = send_batches_json(prompts, batch_size=batch_size, debug=debug_mode)
 	if bypass_check:
 		return responses
@@ -165,7 +153,6 @@ def main(text, batch_size=10, bypass_check=False, debug_mode=False):
 		if debug_mode:
 			print("Failure: The output items are not valid or do not match the input titles.")
 		return "Error"
-
 
 
 if __name__ == "__main__":
@@ -189,4 +176,3 @@ if __name__ == "__main__":
 
 	out = main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False)
 	print(json.dumps(out, ensure_ascii=False, indent=2))
-
