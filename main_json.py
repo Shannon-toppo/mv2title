@@ -77,6 +77,7 @@ def send_batches_json(
 	prompts: list[str], batch_size: int = 10, debug: bool = False
 ) -> list[dict[str, Any]]:
 	all_objs: list[dict[str, Any]] = []
+	counter = 0  # バッチをまたいだ通し番号
 	for batch in utils.chunk_list(prompts, batch_size):
 		raw = _send_batch_raw(batch)
 		parsed = _parse_json_response(raw, debug=debug)
@@ -92,14 +93,16 @@ def send_batches_json(
 			items = list(parsed)
 
 		normalized: list[dict[str, Any]] = []
-		for idx, item in enumerate(items):
+		for pos, item in enumerate(items):
+			counter += 1
+			# index はバッチ内位置ではなく全体の通し番号を採番する
+			orig_fallback = batch[pos] if pos < len(batch) else ""
 			if isinstance(item, dict):
 				obj = item.copy()
-				if "index" not in obj:
-					obj["index"] = idx + 1
+				obj["index"] = counter
 				if "original" not in obj:
-					# try to recover from batch using index
-					obj["original"] = batch[obj["index"] - 1] if 0 <= obj["index"] - 1 < len(batch) else ""
+					# バッチ内の対応位置から元タイトルを復元する
+					obj["original"] = orig_fallback
 				if "title" not in obj:
 					# try other possible keys
 					for k in ("new_title", "name", "video_title"):
@@ -111,8 +114,7 @@ def send_batches_json(
 				normalized.append(obj)
 			else:
 				# 文字列の場合は batch の対応する元タイトルと組にする
-				orig = batch[idx] if idx < len(batch) else ""
-				normalized.append({"index": idx + 1, "original": orig, "title": str(item)})
+				normalized.append({"index": counter, "original": orig_fallback, "title": str(item)})
 
 		all_objs.extend(normalized)
 		if debug:
@@ -139,23 +141,33 @@ def res_check_json(
 			obj["valid"] = False
 		return False, validated
 
+	# 配列順ではなく index (通し番号) で入力と突き合わせる
+	for obj in validated:
+		obj["valid"] = False
+	by_index: dict[int, dict[str, Any]] = {
+		obj["index"]: obj for obj in validated if isinstance(obj.get("index"), int)
+	}
+
 	ok_list: list[bool] = []
-	for i, obj in enumerate(validated):
+	for i in range(len(input_text)):
+		obj = by_index.get(i + 1)
+		if obj is None:
+			ok_list.append(False)
+			if debug:
+				logger.debug("Error: No output item with index %d", i + 1)
+			continue
 		orig = obj.get("original", "")
 		# 比較: 少なくとも一方が他方を含む形で一致していることを期待する
 		ok = input_text[i] in orig or orig in input_text[i]
 		obj["valid"] = ok
 		ok_list.append(ok)
+		if not ok and debug:
+			logger.debug(
+				"Error: Input title not found in output at index %d: %s vs %s",
+				i, input_text[i], orig
+			)
 
-	all_ok = all(ok_list)
-	if not all_ok and debug:
-		for idx, ok in enumerate(ok_list):
-			if not ok:
-				logger.debug(
-					"Error: Input title not found in output at index %d: %s vs %s",
-					idx, input_text[idx], validated[idx].get("original")
-				)
-	return all_ok, validated
+	return all(ok_list), validated
 
 
 def main(
