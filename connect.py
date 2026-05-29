@@ -12,6 +12,7 @@ load_dotenv()
 key: str | None = os.getenv("API_KEY")
 url: str | None = os.getenv("BASE_URL")
 sys_pmt: str | None = os.getenv("SYSTEM_PROMPT")
+model: str = os.getenv("MODEL", "gemma-4-e2b-it")
 
 
 def init(
@@ -45,13 +46,20 @@ def get_system_prompt() -> str | None:
     return _system_prompt
 
 
-def send_message(prompt: str, system_prompt: str | None = None) -> ChatCompletion:
+def send_message(
+    prompt: str,
+    system_prompt: str | None = None,
+    model_name: str = model,
+    temperature: float = 0.0,
+) -> ChatCompletion:
     """
     メッセージを送信する。
 
     Args:
         prompt (str): ユーザーメッセージ
         system_prompt (str|None): 呼び出しごとに指定する system プロンプト（省略時はグローバルを使用）
+        model_name (str): 使用するモデル名（省略時は環境変数 MODEL を使用）
+        temperature (float): サンプリング温度。抽出タスクのため既定は 0.0（決定的）
     """
     if client is None:
         raise RuntimeError("connect.init() を先に呼んでください。")
@@ -62,6 +70,7 @@ def send_message(prompt: str, system_prompt: str | None = None) -> ChatCompletio
     messages.append({"role": "user", "content": prompt})
 
     return client.chat.completions.create(
-        model="gemma-4-e2b-it",
-        messages=messages
+        model=model_name,
+        messages=messages,
+        temperature=temperature,
     )

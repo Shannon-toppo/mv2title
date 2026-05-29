@@ -44,34 +44,26 @@ def send_batches(prompts: list[str], batch_size: int = 10, debug: bool = False) 
     return all_responses
 
 
-def list_search(arr: list[str], keyword_list: list[str]) -> list[bool]:
-    result: list[bool] = []
-    for item in arr:
-        found = False
-        for keyword in keyword_list:
-            if keyword in item:
-                found = True
-                break
-        result.append(found)
-    return result
-
-
 def res_check(input_text: list[str], response: list[str], debug: bool) -> bool:
-    """input_text（元タイトルリスト）と response（出力タイトルリスト）を比較して妥当性を返す。"""
+    """input_text（元タイトルリスト）と response（出力タイトルリスト）を位置ごとに比較して妥当性を返す。"""
     if len(input_text) != len(response):
         if debug:
             print("Error: The number of input titles does not match the number of output titles.")
             print(f"Input length: {len(input_text)}, Output length: {len(response)}")
         return False
 
-    result_list = list_search(input_text, response)
+    # 位置対応で比較: i 番目の入力と i 番目の出力のどちらかが他方を含むこと
+    result_list = [
+        (response[i] in input_text[i]) or (input_text[i] in response[i])
+        for i in range(len(input_text))
+    ]
     if all(result_list):
         return True
 
     for idx, ok in enumerate(result_list):
         if not ok:
             if debug:
-                print(f"Error: Input title not found in output at index {idx}: {input_text[idx]}")
+                print(f"Error: Input title not found in output at index {idx}: {input_text[idx]} vs {response[idx]}")
     return False
 
 
@@ -80,20 +72,17 @@ def main(
     batch_size: int = 10,
     bypass_check: bool = False,
     debug_mode: bool = False,
-) -> list[str] | str:
-    """text: list of original titles. 戻り値: 応答タイトルのリストまたは失敗メッセージ文字列。"""
-    connect.init()
+) -> list[str]:
+    """text: list of original titles. 戻り値: 応答タイトルのリスト。検証失敗時は ValueError を送出する。"""
     prompts = utils.edit_title(text)
     responses = send_batches(prompts, batch_size=batch_size, debug=debug_mode)
     if bypass_check:
         return responses
-    result = res_check(text, responses, debug_mode)
-    if result:
+    if res_check(text, responses, debug_mode):
         return responses
-    else:
-        if debug_mode:
-            print("Failure: The output titles are not valid or do not match the input titles.")
-        return "Error"
+    if debug_mode:
+        print("Failure: The output titles are not valid or do not match the input titles.")
+    raise ValueError("Output does not match input titles.")
 
 
 if __name__ == "__main__":
@@ -115,4 +104,5 @@ if __name__ == "__main__":
         "「ヒューマとニズム」-Hata"
     ]
 
+    connect.init()
     print(main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False))
