@@ -1,6 +1,7 @@
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 from dotenv import load_dotenv
+from typing import Any
 import os
 
 
@@ -28,6 +29,14 @@ def init(
         system_prompt (str|None): 初期の system プロンプト（任意）
     """
     global client, _system_prompt
+    if not base_url:
+        # base_url が None/空だと OpenAI() は本番 (api.openai.com) へフォールバックする。
+        # 本ライブラリはローカル OpenAI 互換サーバ前提のため、誤送信を防いで明示的に失敗させる。
+        raise ValueError(
+            "BASE_URL が未設定です。ローカル LLM のエンドポイント"
+            "（例: http://127.0.0.1:1234/v1/）を .env の BASE_URL に設定するか、"
+            "init(base_url=...) で明示してください。"
+        )
     _system_prompt = system_prompt
     client = OpenAI(
         api_key=api_key,
@@ -51,6 +60,7 @@ def send_message(
     system_prompt: str | None = None,
     model_name: str = model,
     temperature: float = 0.0,
+    response_format: dict[str, Any] | None = None,
 ) -> ChatCompletion:
     """
     メッセージを送信する。
@@ -60,6 +70,8 @@ def send_message(
         system_prompt (str|None): 呼び出しごとに指定する system プロンプト（省略時はグローバルを使用）
         model_name (str): 使用するモデル名（省略時は環境変数 MODEL を使用）
         temperature (float): サンプリング温度。抽出タスクのため既定は 0.0（決定的）
+        response_format (dict|None): OpenAI 互換の構造化出力指定（例: json_schema / json_object）。
+            省略時は通常のテキスト応答。
     """
     if client is None:
         raise RuntimeError("connect.init() を先に呼んでください。")
@@ -69,8 +81,12 @@ def send_message(
         messages.append({"role": "system", "content": sp})
     messages.append({"role": "user", "content": prompt})
 
-    return client.chat.completions.create(
-        model=model_name,
-        messages=messages,
-        temperature=temperature,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+
+    return client.chat.completions.create(**kwargs)

@@ -17,6 +17,37 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# 構造化出力 (OpenAI 互換 json_schema) のスキーマ。
+# strict モードはトップレベルがオブジェクトである必要があるため results 配列で包む。
+_RESPONSE_SCHEMA: dict[str, Any] = {
+	"type": "json_schema",
+	"json_schema": {
+		"name": "title_extraction",
+		"strict": True,
+		"schema": {
+			"type": "object",
+			"properties": {
+				"results": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"index": {"type": "integer"},
+							"original": {"type": "string"},
+							"title": {"type": "string"},
+						},
+						"required": ["index", "original", "title"],
+						"additionalProperties": False,
+					},
+				}
+			},
+			"required": ["results"],
+			"additionalProperties": False,
+		},
+	},
+}
+
+
 def _make_json_prompt(batch: list[str]) -> str:
 	items = "\n".join(batch)
 	p = (
@@ -30,8 +61,9 @@ def _make_json_prompt(batch: list[str]) -> str:
 	return p
 
 
-def _send_batch_raw(batch: list[str]) -> str | None:
-	response = connect.send_message(_make_json_prompt(batch))
+def _send_batch_raw(batch: list[str], use_schema: bool = True) -> str | None:
+	response_format = _RESPONSE_SCHEMA if use_schema else None
+	response = connect.send_message(_make_json_prompt(batch), response_format=response_format)
 	return response.choices[0].message.content
 
 
@@ -74,35 +106,75 @@ def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 
 
 def send_batches_json(
-	prompts: list[str], batch_size: int = 10, debug: bool = False
+	prompts: list[str], batch_size: int = 10, debug: bool = False, use_schema: bool = True
 ) -> list[dict[str, Any]]:
 	all_objs: list[dict[str, Any]] = []
-	counter = 0  # バッチをまたいだ通し番号
+	# base はバッチ先頭の 0-based グローバルオフセット。
+	# LLM の返却件数に依存せず必ず len(batch) ずつ進めることで、
+	# あるバッチの件数ズレが後続バッチの採番へ波及（カスケード）するのを防ぐ。
+	base = 0
+	# 構造化出力をサーバが拒否したら以降のバッチでも使わない（毎回失敗させない）。
+	schema_enabled = use_schema
 	for batch in utils.chunk_list(prompts, batch_size):
-		raw = _send_batch_raw(batch)
+		try:
+			raw = _send_batch_raw(batch, use_schema=schema_enabled)
+		except Exception:
+			if schema_enabled:
+				logger.warning(
+					"Structured output (response_format) failed; falling back to plain prompt.",
+					exc_info=debug,
+				)
+				schema_enabled = False
+				raw = _send_batch_raw(batch, use_schema=False)
+			else:
+				raise
 		parsed = _parse_json_response(raw, debug=debug)
+
+		# 構造化出力は {"results": [...]} 形式で包まれて返るため取り出す。
+		if isinstance(parsed, dict) and isinstance(parsed.get("results"), list):
+			parsed = parsed["results"]
 
 		if parsed is None:
 			logger.warning("Batch parse returned None, skipping %d items: %s", len(batch), batch)
+			base += len(batch)
 			continue
 
-		# parsed がリストか辞書か文字列リストかを判定して正規化
+		# parsed がリストか辞書かを判定して正規化（それ以外は破棄）
 		if isinstance(parsed, dict):
-			items = [parsed]
-		else:
+			items: list[Any] = [parsed]
+		elif isinstance(parsed, (list, tuple)):
 			items = list(parsed)
+		else:
+			logger.warning("Unexpected parsed type %s, skipping %d items: %s", type(parsed), len(batch), batch)
+			base += len(batch)
+			continue
 
 		normalized: list[dict[str, Any]] = []
 		for pos, item in enumerate(items):
-			counter += 1
-			# index はバッチ内位置ではなく全体の通し番号を採番する
-			orig_fallback = batch[pos] if pos < len(batch) else ""
+			# LLM は index をバッチごとに 1 から振り直す（バッチ内ローカル番号）ため、
+			# それを base に足してリスト全体のグローバル番号へ変換する。
+			# index がバッチ内の妥当な範囲 (1..len(batch)) なら並び替えの手がかりとして尊重し、
+			# 範囲外・欠落・非整数なら配列順 (pos) にフォールバックする。
+			local_pos = pos
+			if isinstance(item, dict):
+				idx = item.get("index")
+				if isinstance(idx, bool):
+					idx = None
+				elif not isinstance(idx, int):
+					try:
+						idx = int(idx)  # type: ignore[arg-type]
+					except (TypeError, ValueError):
+						idx = None
+				if isinstance(idx, int) and 1 <= idx <= len(batch):
+					local_pos = idx - 1
+			global_index = base + local_pos + 1
+			# 対応する元タイトル。LLM が echo した original ではなく、番号を剥がした入力を正とする。
+			orig_fallback = utils.strip_index(batch[local_pos]) if local_pos < len(batch) else ""
 			if isinstance(item, dict):
 				obj = item.copy()
-				obj["index"] = counter
-				if "original" not in obj:
-					# バッチ内の対応位置から元タイトルを復元する
-					obj["original"] = orig_fallback
+				obj["index"] = global_index
+				# LLM は番号付き入力をそのまま echo しがちなので、元タイトルは常に入力側を採用する。
+				obj["original"] = orig_fallback
 				if "title" not in obj:
 					# try other possible keys
 					for k in ("new_title", "name", "video_title"):
@@ -114,9 +186,10 @@ def send_batches_json(
 				normalized.append(obj)
 			else:
 				# 文字列の場合は batch の対応する元タイトルと組にする
-				normalized.append({"index": counter, "original": orig_fallback, "title": str(item)})
+				normalized.append({"index": global_index, "original": orig_fallback, "title": str(item)})
 
 		all_objs.extend(normalized)
+		base += len(batch)
 		if debug:
 			logger.debug("raw: %s", raw)
 			logger.debug("parsed items: %s", normalized)
@@ -131,21 +204,22 @@ def res_check_json(
 ) -> tuple[bool, list[dict[str, Any]]]:
 	validated: list[dict[str, Any]] = [obj.copy() for obj in response]
 
-	if len(input_text) != len(response):
-		if debug:
-			logger.debug(
-				"Error: The number of input titles does not match the number of output items. "
-				"Input length: %d, Output length: %d", len(input_text), len(response)
-			)
-		for obj in validated:
-			obj["valid"] = False
-		return False, validated
-
-	# 配列順ではなく index (通し番号) で入力と突き合わせる
+	# 既定は invalid。件数不一致でも全件破棄せず、index ごとに検証して valid を立てる。
 	for obj in validated:
 		obj["valid"] = False
+
+	length_ok = len(input_text) == len(response)
+	if not length_ok and debug:
+		logger.debug(
+			"Error: The number of input titles does not match the number of output items. "
+			"Input length: %d, Output length: %d", len(input_text), len(response)
+		)
+
+	# 配列順ではなく index (グローバル通し番号) で入力と突き合わせる
 	by_index: dict[int, dict[str, Any]] = {
-		obj["index"]: obj for obj in validated if isinstance(obj.get("index"), int)
+		obj["index"]: obj
+		for obj in validated
+		if isinstance(obj.get("index"), int) and not isinstance(obj.get("index"), bool)
 	}
 
 	ok_list: list[bool] = []
@@ -167,7 +241,7 @@ def res_check_json(
 				i, input_text[i], orig
 			)
 
-	return all(ok_list), validated
+	return (length_ok and all(ok_list)), validated
 
 
 def main(
@@ -175,9 +249,12 @@ def main(
 	batch_size: int = 10,
 	bypass_check: bool = False,
 	debug_mode: bool = False,
+	use_schema: bool = True,
 ) -> list[dict[str, Any]]:
 	prompts = utils.edit_title(text)
-	responses = send_batches_json(prompts, batch_size=batch_size, debug=debug_mode)
+	responses = send_batches_json(
+		prompts, batch_size=batch_size, debug=debug_mode, use_schema=use_schema
+	)
 	ok, validated = res_check_json(text, responses, debug_mode)
 	if bypass_check or ok:
 		return validated
