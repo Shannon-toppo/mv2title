@@ -58,7 +58,7 @@ def get_system_prompt() -> str | None:
 def send_message(
     prompt: str,
     system_prompt: str | None = None,
-    model_name: str = model,
+    model_name: str | None = None,
     temperature: float = 0.0,
     response_format: dict[str, Any] | None = None,
 ) -> ChatCompletion:
@@ -68,7 +68,7 @@ def send_message(
     Args:
         prompt (str): ユーザーメッセージ
         system_prompt (str|None): 呼び出しごとに指定する system プロンプト（省略時はグローバルを使用）
-        model_name (str): 使用するモデル名（省略時は環境変数 MODEL を使用）
+        model_name (str|None): 使用するモデル名（省略時はモジュール変数 model = 環境変数 MODEL を使用）
         temperature (float): サンプリング温度。抽出タスクのため既定は 0.0（決定的）
         response_format (dict|None): OpenAI 互換の構造化出力指定（例: json_schema / json_object）。
             省略時は通常のテキスト応答。
@@ -82,7 +82,8 @@ def send_message(
     messages.append({"role": "user", "content": prompt})
 
     kwargs: dict[str, Any] = {
-        "model": model_name,
+        # 既定引数で束縛せず実行時に解決することで、init 後の connect.model 変更も反映する。
+        "model": model_name if model_name is not None else model,
         "messages": messages,
         "temperature": temperature,
     }

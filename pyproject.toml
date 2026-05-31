@@ -8,3 +8,6 @@ dependencies = [
     "openai>=2.32.0",
     "python-dotenv>=1.2.2",
 ]
+
+[project.scripts]
+mv2title = "mv2title.cli:main"
