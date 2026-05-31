@@ -86,23 +86,11 @@ def main(
 
 
 if __name__ == "__main__":
-    test_list_2 = [
-        "暴飲暴食P 「うそつきマカロン」feat. 重音テト ",
-        "あんずの花/ すりぃ feat.ねね(Official Music Video)",
-        "【初音ミク】幸福でも不幸でもない平凡で幸福な日々と幸福でも不幸でもある非凡で不幸な日々【オリジナル曲】by HaTa",
-        "ヨルシカ「ただ君に晴れ」Music Video",
-        "[self cover] The Beast. /スペクタルP feat 可不",
-        "MIMI - サイエンス (feat.重音テトSV)",
-        "『ソルティメロウ』 / feat. 可不",
-        "『天使の涙』 / feat.初音ミク",
-        "『アンコールダンス』/ feat. 重音テトSV",
-        "『夜と幸せ』/ feat. 詩の出素。",
-        "『桜の戦略 』/ MIMI feat. マス",
-        "『お砂糖哀歌』 / feat. 初音ミク",
-        "『恋しくなったら手を叩こう』/ MIMI feat.花鏡紅璃",
-        "『恋しくなったら手を叩こう』 / feat.重音テトSV",
-        "「ヒューマとニズム」-Hata"
-    ]
+    import os
+
+    # デモ用の入力はリポジトリ管理外の test.txt（1 行 1 タイトル）から読み込む。
+    _test_file = os.path.join(os.path.dirname(__file__), "test.txt")
+    test_list_2 = utils.read_titles(_test_file)
 
     connect.init()
     print(main(test_list_2, batch_size=10, bypass_check=False, debug_mode=False))
