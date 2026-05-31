@@ -11,3 +11,8 @@ dependencies = [
 
 [project.scripts]
 mv2title = "mv2title.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

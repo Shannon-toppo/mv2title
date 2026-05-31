@@ -9,3 +9,11 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# Local demo input for module __main__ blocks (not version-controlled)
+test.txt
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
