@@ -147,8 +147,8 @@ def test_send_batches_falls_back_when_schema_rejected(fake_send):
 def test_res_check_all_valid():
     inp = ["a song", "b song"]
     resp = [
-        {"index": 1, "original": "a song", "title": "A"},
-        {"index": 2, "original": "b song", "title": "B"},
+        {"index": 1, "original": "a song", "title": "a"},
+        {"index": 2, "original": "b song", "title": "b"},
     ]
     ok, validated = main_json.res_check_json(inp, resp)
     assert ok is True
@@ -158,26 +158,32 @@ def test_res_check_all_valid():
 def test_res_check_matches_by_index_when_shuffled():
     inp = ["a song", "b song", "c song"]
     resp = [
-        {"index": 3, "original": "c song", "title": "C"},
-        {"index": 1, "original": "a song", "title": "A"},
-        {"index": 2, "original": "b song", "title": "B"},
+        {"index": 3, "original": "c song", "title": "c"},
+        {"index": 1, "original": "a song", "title": "a"},
+        {"index": 2, "original": "b song", "title": "b"},
     ]
     ok, validated = main_json.res_check_json(inp, resp)
     assert ok is True
     assert all(o["valid"] for o in validated)
+    # 戻り値は入力と同順に並べ直される
+    assert [o["index"] for o in validated] == [1, 2, 3]
+    assert [o["title"] for o in validated] == ["a", "b", "c"]
 
 
 def test_res_check_length_mismatch_but_per_item_validated():
     inp = ["a song", "b song", "c song"]
     resp = [
-        {"index": 1, "original": "a song", "title": "A"},
-        {"index": 3, "original": "c song", "title": "C"},
+        {"index": 1, "original": "a song", "title": "a"},
+        {"index": 3, "original": "c song", "title": "c"},
     ]
     ok, validated = main_json.res_check_json(inp, resp)
     assert ok is False  # 件数不一致なので全体は False
+    assert len(validated) == 3  # 欠けた入力にもプレースホルダが入る
     by_idx = {o["index"]: o for o in validated}
     assert by_idx[1]["valid"] is True
     assert by_idx[3]["valid"] is True
+    assert by_idx[2]["valid"] is False
+    assert by_idx[2]["title"] == ""
 
 
 def test_res_check_substring_mismatch():
@@ -188,30 +194,128 @@ def test_res_check_substring_mismatch():
     assert validated[0]["valid"] is False
 
 
+def test_res_check_validates_title_not_original_echo():
+    # original が入力と一致していても title が無関係なら invalid。
+    # （以前は original 同士の比較だったため常に valid になっていた回帰テスト）
+    inp = ["some long video title"]
+    resp = [{"index": 1, "original": "some long video title", "title": "unrelated"}]
+    ok, validated = main_json.res_check_json(inp, resp)
+    assert ok is False
+    assert validated[0]["valid"] is False
+
+
+def test_res_check_normalizes_fullwidth_and_case():
+    # NFKC 正規化 + casefold 後に比較される（全角/半角・大文字小文字の差を吸収）
+    inp = ["ＳｏｎｇＴｉｔｌｅ Official"]
+    resp = [{"index": 1, "title": "songtitle"}]
+    ok, validated = main_json.res_check_json(inp, resp)
+    assert ok is True
+    assert validated[0]["valid"] is True
+
+
+def test_res_check_empty_title_invalid():
+    # 空文字列はあらゆる文字列の部分文字列だが、valid にしてはいけない
+    ok, validated = main_json.res_check_json(["a song"], [{"index": 1, "title": ""}])
+    assert ok is False
+    assert validated[0]["valid"] is False
+
+
+def test_res_check_duplicate_index_first_wins():
+    inp = ["a song"]
+    resp = [
+        {"index": 1, "title": "a"},
+        {"index": 1, "title": "zzz"},
+    ]
+    ok, validated = main_json.res_check_json(inp, resp)
+    assert len(validated) == 1
+    assert validated[0]["title"] == "a"
+    assert validated[0]["valid"] is True
+    assert ok is False  # 件数不一致（2 件返ってきている）
+
+
+def test_res_check_matches_against_cleaned_source():
+    # 前処理でノイズ除去した文字列から抽出された title も valid と判定できる
+    inp = ["A 【MV】 B"]
+    resp = [{"index": 1, "title": "A B"}]
+    ok, validated = main_json.res_check_json(inp, resp, cleaned=["A B"])
+    assert ok is True
+    assert validated[0]["valid"] is True
+    # original は前処理後ではなく元のタイトル
+    assert validated[0]["original"] == "A 【MV】 B"
+
+
 # ---- main -----------------------------------------------------------------
 
 def test_main_returns_validated(fake_send):
     fake_send([_schema_payload([
-        {"index": 1, "original": "1.a song", "title": "A"},
+        {"index": 1, "original": "1.a song", "title": "a"},
     ])])
     out = main_json.main(["a song"], batch_size=10)
-    assert out[0]["title"] == "A"
+    assert out[0]["title"] == "a"
     assert out[0]["valid"] is True
 
 
 def test_main_raises_on_validation_failure(fake_send):
-    # LLM が 2 件中 1 件しか返さない → 件数不一致で検証失敗
-    fake_send([_schema_payload([
-        {"index": 1, "title": "A"},
-    ])])
+    # LLM が 2 件中 1 件しか返さない → 失敗分の部分リトライも失敗 → ValueError
+    fake_send([
+        _schema_payload([{"index": 1, "title": "a"}]),
+        _schema_payload([]),  # リトライ分も空応答
+    ])
     with pytest.raises(ValueError):
         main_json.main(["a song", "b song"], batch_size=10)
 
 
 def test_main_bypass_check(fake_send):
-    # 件数不一致でも bypass_check なら例外を出さず返す
+    # 件数不一致でも bypass_check なら例外を出さず返す（リトライもしない）
     fake_send([_schema_payload([
-        {"index": 1, "title": "A"},
+        {"index": 1, "title": "a"},
     ])])
     out = main_json.main(["a song", "b song"], batch_size=10, bypass_check=True)
-    assert out[0]["title"] == "A"
+    assert len(out) == 2
+    assert out[0]["title"] == "a"
+    assert out[0]["valid"] is True
+    assert out[1]["valid"] is False
+
+
+def test_main_partial_retry_recovers(fake_send):
+    # 検証に失敗した項目だけが再問い合わせされ、成功すれば全体が valid になる
+    state = fake_send([
+        _schema_payload([
+            {"index": 1, "title": "a"},
+            {"index": 2, "title": "zzz"},  # b song と不一致
+        ]),
+        _schema_payload([{"index": 1, "title": "b"}]),  # リトライは 1 件のみ
+    ])
+    out = main_json.main(["a song", "b song"], batch_size=10)
+    assert [o["title"] for o in out] == ["a", "b"]
+    assert [o["index"] for o in out] == [1, 2]
+    assert all(o["valid"] for o in out)
+    assert len(state.calls) == 2
+    # リトライのプロンプトには失敗した 1 件だけが含まれる
+    assert "b song" in state.calls[1].prompt
+    assert "a song" not in state.calls[1].prompt
+    # リトライは temperature を上げて同一出力の再発を避ける
+    assert state.calls[1].temperature > state.calls[0].temperature
+
+
+def test_main_retry_disabled(fake_send):
+    # retry_invalid=0 なら再問い合わせせず即座に失敗する
+    # （余計な呼び出しがあれば conftest の fake_send が AssertionError を出す）
+    fake_send([_schema_payload([{"index": 1, "title": "zzz"}])])
+    with pytest.raises(ValueError):
+        main_json.main(["a song"], batch_size=10, retry_invalid=0)
+
+
+def test_main_preprocess_strips_noise_from_prompt(fake_send):
+    state = fake_send([_schema_payload([{"index": 1, "title": "a song"}])])
+    out = main_json.main(["a song (Official Music Video)"])
+    assert "Official Music Video" not in state.calls[0].prompt
+    assert out[0]["valid"] is True
+    # original には前処理前の元タイトルが入る
+    assert out[0]["original"] == "a song (Official Music Video)"
+
+
+def test_main_no_preprocess_keeps_raw_title(fake_send):
+    state = fake_send([_schema_payload([{"index": 1, "title": "a song"}])])
+    main_json.main(["a song (Official Music Video)"], preprocess=False)
+    assert "Official Music Video" in state.calls[0].prompt

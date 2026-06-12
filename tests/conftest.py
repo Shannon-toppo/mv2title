@@ -41,9 +41,10 @@ def fake_send(monkeypatch):
                     raise AssertionError("fake_send: 応答が不足しています")
 
         def fake(prompt, system_prompt=None, model_name=None,
-                 temperature=0.0, response_format=None):
+                 temperature=0.0, response_format=None, max_tokens=None):
             state.calls.append(SimpleNamespace(
                 prompt=prompt, response_format=response_format,
+                temperature=temperature,
             ))
             return make_completion(producer(prompt, response_format=response_format))
 

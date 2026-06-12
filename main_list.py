@@ -1,4 +1,10 @@
+"""旧実装（非推奨）。main_json を使用してください。
+
+LLM の出力をプレーンなリスト文字列として受け取るレガシーパスです。
+将来のリリースで削除予定のため、バグ修正以外の変更は行いません。
+"""
 import ast
+import warnings
 
 try:
     from . import connect
@@ -73,7 +79,17 @@ def main(
     bypass_check: bool = False,
     debug_mode: bool = False,
 ) -> list[str]:
-    """text: list of original titles. 戻り値: 応答タイトルのリスト。検証失敗時は ValueError を送出する。"""
+    """text: list of original titles. 戻り値: 応答タイトルのリスト。検証失敗時は ValueError を送出する。
+
+    .. deprecated:: 0.1.0
+        main_json.main() を使用してください。このモジュールは将来のリリースで削除されます。
+    """
+    warnings.warn(
+        "main_list.main() は非推奨です。main_json.main() を使用してください"
+        "（将来のリリースで削除予定）。",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     prompts = utils.edit_title(text)
     responses = send_batches(prompts, batch_size=batch_size, debug=debug_mode)
     if bypass_check:

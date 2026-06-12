@@ -28,6 +28,37 @@ def test_set_system_prompt():
     assert connect.get_system_prompt() == "new"
 
 
+def test_init_configures_timeout_and_retries():
+    connect.init(api_key="k", base_url="http://localhost:1234/v1/",
+                 timeout=5.0, max_retries=1)
+    assert connect.client.timeout == 5.0
+    assert connect.client.max_retries == 1
+
+
+def test_init_defaults_timeout_and_retries():
+    connect.init(api_key="k", base_url="http://localhost:1234/v1/")
+    assert connect.client.timeout == connect.DEFAULT_TIMEOUT
+    assert connect.client.max_retries == connect.DEFAULT_MAX_RETRIES
+
+
+def test_send_message_passes_max_tokens(monkeypatch):
+    connect.init(api_key="k", base_url="http://localhost:1234/v1/")
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+    monkeypatch.setattr(
+        connect.client, "chat",
+        type("C", (), {"completions": FakeCompletions()})(),
+    )
+
+    connect.send_message("hi", max_tokens=256)
+    assert captured["max_tokens"] == 256
+
+
 def test_send_message_passes_response_format(monkeypatch):
     connect.init(api_key="k", base_url="http://localhost:1234/v1/")
     captured = {}
@@ -64,6 +95,7 @@ def test_send_message_omits_response_format_when_none(monkeypatch):
 
     connect.send_message("hi")
     assert "response_format" not in captured
+    assert "max_tokens" not in captured
 
 
 def test_send_message_resolves_model_at_call_time(monkeypatch):

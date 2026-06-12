@@ -51,3 +51,9 @@ def test_main_raises_on_mismatch(fake_send):
     fake_send(["['xyz']"])
     with pytest.raises(ValueError):
         main_list.main(["a song"], batch_size=10)
+
+
+def test_main_emits_deprecation_warning(fake_send):
+    fake_send(["['A']"])
+    with pytest.warns(DeprecationWarning):
+        main_list.main(["a song A"], batch_size=10, bypass_check=True)

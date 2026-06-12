@@ -13,25 +13,25 @@ The git repo root is the `mv2title/` package itself. Consumer scripts that *use*
 - Python **>= 3.12** is required (`utils.chunk_list` uses PEP 695 generic syntax).
 - Dependencies are managed with **uv**: `uv sync` to install, `uv lock` after editing `pyproject.toml`.
 - An LLM must be hosted with an OpenAI-compatible endpoint. Copy `.env.example` to `.env` and set `BASE_URL` (the server), `API_KEY` (anything for local servers), `SYSTEM_PROMPT`, and optionally `MODEL` (default `gemma-4-e2b-it`).
-- Run the built-in demos (each module has a `__main__` block with sample titles): `python main_json.py` or `python main_list.py`.
-- There is currently **no test suite or linter configured** — do not assume `pytest`/`ruff` commands exist.
+- Run the built-in demos (each module reads sample titles from gitignored `test.txt`, one per line): `python main_json.py`, or use the CLI: `uv run mv2title "title..."` (see `cli.py`).
+- Tests: `uv run pytest`. The suite is fully offline — `tests/conftest.py` provides a `fake_send` fixture that replaces `connect.send_message`. No linter is configured yet (ruff is planned, see README roadmap).
 
 ## Architecture
 
-The pipeline is the same in both entry modules: `text -> utils.edit_title -> send_batches -> res_check -> result`.
+Pipeline (in `main_json.main`): `text -> utils.clean_title (preprocess=True) -> utils.edit_title -> send_batches_json -> res_check_json -> partial retry of invalid items -> result`.
 
-1. **`utils.edit_title`** prepends 1-based numbering (`"1.<title>"`) so the LLM can align outputs to inputs; **`utils.chunk_list`** splits into `batch_size` chunks (one LLM call per chunk).
-2. **`connect.py`** is a thin wrapper over the `openai` client with **module-level singletons** (`client`, `_system_prompt`). `connect.init()` **must be called before** any `send_message()` (otherwise `RuntimeError`). `init()` reads defaults from env at import time. `send_message` defaults to `temperature=0.0` for deterministic extraction.
-3. **`res_check` / `res_check_json`** validate the result: (a) output count equals input count, (b) each input/output pair is substring-related (`a in b or b in a`). `bypass_check=True` skips this.
+1. **`utils.clean_title`** (on by default, `preprocess=False` to disable) strips boilerplate noise before the LLM call: bracket groups containing noise keywords (`(Official Music Video)`, `【MV】`, …), `feat./ft.` clauses, and dangling separators. Falls back to the raw title if everything would be removed. `「」`/`『』` are deliberately untouched (they often wrap the actual title).
+2. **`utils.edit_title`** prepends 1-based numbering (`"1.<title>"`) so the LLM can align outputs to inputs; **`utils.chunk_list`** splits into `batch_size` chunks (one LLM call per chunk).
+3. **`connect.py`** is a thin wrapper over the `openai` client with **module-level singletons** (`client`, `_system_prompt`). `connect.init()` **must be called before** any `send_message()` (otherwise `RuntimeError`). `init()` reads defaults from env at import time and configures `timeout` (default 120 s) and `max_retries` (default 2 — the openai SDK retries transient errors with exponential backoff). `send_message` defaults to `temperature=0.0` for deterministic extraction and accepts optional `max_tokens`.
+4. **`res_check_json`** validates by comparing each output's **`title`** against the input title (and the preprocessed title via the `cleaned=` arg) — substring relation after **NFKC + casefold + whitespace-collapse** normalization (`utils.is_title_match`; empty titles are invalid). Do NOT compare `original` against the input: `original` is overwritten with the input itself, so that comparison is vacuous (this was a real bug once — see `test_res_check_validates_title_not_original_echo`).
+5. **Partial retry**: when validation fails and `bypass_check=False`, `main()` re-queries **only the invalid items** up to `retry_invalid` times (default 1) at `_RETRY_TEMPERATURE` (0.4, so a deterministic failure isn't replayed verbatim) before raising `ValueError`.
 
-### Two parallel implementations — prefer the JSON one
+### main_json is canonical; main_list is deprecated
 
-`main_list.py` and `main_json.py` expose the **same `main(text, batch_size=10, bypass_check=False, debug_mode=False)` signature** but differ in the LLM output contract:
+- **`main_json.py`** — LLM returns a JSON array of objects `{index, original, title}` (structured output via `json_schema` when `use_schema=True`, with automatic fallback to a plain prompt if the server rejects it). `send_batches_json` parses with fallbacks (brace-substring extraction → `ast.literal_eval` → comma split), normalizes loose keys (`new_title`/`name`/`video_title` → `title`), and assigns a **global sequential `index` across batches**. `res_check_json` matches input to output **by `index`** and returns `(all_ok, validated)` where `validated` has **exactly one entry per input, in input order** (missing outputs get an empty-title placeholder, duplicate indices are first-wins, extras are dropped; `original` is reset to the caller's raw title). `main()` returns that `list[dict]` and raises `ValueError` on validation failure.
+- **`main_list.py` (deprecated)** — legacy plain-list-of-strings contract; `main()` emits a `DeprecationWarning` and the module is slated for removal. Bug fixes only; do not add features or port new behavior to it.
 
-- **`main_json.py` (canonical/preferred)** — LLM returns a JSON array of objects `{index, original, title}`. `send_batches_json` parses (with fallbacks: brace-substring extraction → `ast.literal_eval` → comma split), normalizes loose keys (`new_title`/`name`/`video_title` → `title`), and assigns a **global sequential `index` across batches**. `res_check_json` matches input to output **by `index`** (not array position) and returns `(all_ok, validated_list_of_dicts)` where each dict gets a `valid` flag. `main()` returns `list[dict]` and **raises `ValueError`** on validation failure.
-- **`main_list.py` (legacy)** — LLM returns a plain list of strings (`ast.literal_eval`, fallback comma split). Validation is positional. `main()` returns `list[str]` and raises `ValueError` on failure.
-
-When changing behavior, **keep the two `main()` APIs aligned** (error handling, init responsibility). Neither `main()` calls `connect.init()` — **the caller is responsible** for calling it first.
+Neither `main()` calls `connect.init()` — **the caller is responsible** for calling it first.
 
 ### Conventions to match
 

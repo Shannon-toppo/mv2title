@@ -15,11 +15,18 @@ url: str | None = os.getenv("BASE_URL")
 sys_pmt: str | None = os.getenv("SYSTEM_PROMPT")
 model: str = os.getenv("MODEL", "gemma-4-e2b-it")
 
+# ローカル LLM は応答が遅いことがあるため、OpenAI 既定 (600s) より短いが余裕のある値。
+DEFAULT_TIMEOUT: float = 120.0
+# openai SDK が接続エラー・429・5xx を指数バックオフ付きで再試行する回数。
+DEFAULT_MAX_RETRIES: int = 2
+
 
 def init(
     api_key: str | None = key,
     base_url: str | None = url,
     system_prompt: str | None = sys_pmt,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> None:
     """
     クライアント初期化
@@ -27,6 +34,8 @@ def init(
         api_key (str): APIキー。ローカルサーバーなら適当で可
         base_url (str): APIのベースURL
         system_prompt (str|None): 初期の system プロンプト（任意）
+        timeout (float): リクエスト全体のタイムアウト秒数
+        max_retries (int): 一時的エラー時の再試行回数（SDK が指数バックオフで処理）
     """
     global client, _system_prompt
     if not base_url:
@@ -40,7 +49,9 @@ def init(
     _system_prompt = system_prompt
     client = OpenAI(
         api_key=api_key,
-        base_url=base_url
+        base_url=base_url,
+        timeout=timeout,
+        max_retries=max_retries,
     )
 
 
@@ -61,6 +72,7 @@ def send_message(
     model_name: str | None = None,
     temperature: float = 0.0,
     response_format: dict[str, Any] | None = None,
+    max_tokens: int | None = None,
 ) -> ChatCompletion:
     """
     メッセージを送信する。
@@ -72,6 +84,7 @@ def send_message(
         temperature (float): サンプリング温度。抽出タスクのため既定は 0.0（決定的）
         response_format (dict|None): OpenAI 互換の構造化出力指定（例: json_schema / json_object）。
             省略時は通常のテキスト応答。
+        max_tokens (int|None): 応答の最大トークン数。省略時はサーバ既定。
     """
     if client is None:
         raise RuntimeError("connect.init() を先に呼んでください。")
@@ -89,5 +102,7 @@ def send_message(
     }
     if response_format is not None:
         kwargs["response_format"] = response_format
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
 
     return client.chat.completions.create(**kwargs)

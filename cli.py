@@ -99,6 +99,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="構造化出力 (json_schema) を使わず、プレーンプロンプトで問い合わせます。",
     )
     parser.add_argument(
+        "--no-preprocess",
+        action="store_true",
+        help="LLM 送信前の定型ノイズ除去（(Official Music Video)、【MV】、feat. ～ など）を無効化します。",
+    )
+    parser.add_argument(
+        "--retry",
+        type=int,
+        default=1,
+        metavar="N",
+        help="検証に失敗した項目のみ再問い合わせする回数（既定: 1。0 で無効）。",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        metavar="SEC",
+        help="LLM リクエストのタイムアウト秒数（既定: 120）。",
+    )
+    parser.add_argument(
         "--base-url",
         help="LLM エンドポイント。省略時は .env の BASE_URL を使用します。",
     )
@@ -129,8 +147,11 @@ def main(argv: list[str] | None = None) -> int:
             "タイトルが指定されていません。位置引数・-f ファイル・標準入力のいずれかで渡してください。"
         )
 
+    init_kwargs: dict[str, Any] = {"base_url": args.base_url or connect.url}
+    if args.timeout is not None:
+        init_kwargs["timeout"] = args.timeout
     try:
-        connect.init(base_url=args.base_url or connect.url)
+        connect.init(**init_kwargs)
     except ValueError as e:
         print(f"エラー: {e}", file=sys.stderr)
         return 2
@@ -145,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
             bypass_check=args.bypass_check,
             debug_mode=args.debug,
             use_schema=not args.no_schema,
+            preprocess=not args.no_preprocess,
+            retry_invalid=args.retry,
         )
     except ValueError as e:
         print(f"検証エラー: {e}", file=sys.stderr)

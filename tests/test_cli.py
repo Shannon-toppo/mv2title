@@ -101,6 +101,56 @@ def test_main_base_url_guard(monkeypatch, capsys):
     assert "BASE_URL" in capsys.readouterr().err
 
 
+def test_main_passes_preprocess_and_retry(monkeypatch):
+    monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+    monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+    captured = {}
+
+    def fake_main(titles, **kw):
+        captured.update(kw)
+        return [{"index": 1, "original": titles[0], "title": "T", "valid": True}]
+
+    monkeypatch.setattr(cli.main_json, "main", fake_main)
+    rc = cli.main(["--no-preprocess", "--retry", "2", "x"])
+    assert rc == 0
+    assert captured["preprocess"] is False
+    assert captured["retry_invalid"] == 2
+
+
+def test_main_preprocess_enabled_by_default(monkeypatch):
+    monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+    monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+    captured = {}
+
+    def fake_main(titles, **kw):
+        captured.update(kw)
+        return []
+
+    monkeypatch.setattr(cli.main_json, "main", fake_main)
+    assert cli.main(["x"]) == 0
+    assert captured["preprocess"] is True
+    assert captured["retry_invalid"] == 1
+
+
+def test_main_passes_timeout_to_init(monkeypatch):
+    init_kwargs = {}
+    monkeypatch.setattr(cli.connect, "init", lambda **kw: init_kwargs.update(kw))
+    monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+    monkeypatch.setattr(cli.main_json, "main", lambda titles, **kw: [])
+    assert cli.main(["--timeout", "5", "x"]) == 0
+    assert init_kwargs["timeout"] == 5.0
+
+
+def test_main_omits_timeout_when_not_given(monkeypatch):
+    # timeout 未指定時は init に渡さず、connect 側の既定値に任せる
+    init_kwargs = {}
+    monkeypatch.setattr(cli.connect, "init", lambda **kw: init_kwargs.update(kw))
+    monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+    monkeypatch.setattr(cli.main_json, "main", lambda titles, **kw: [])
+    assert cli.main(["x"]) == 0
+    assert "timeout" not in init_kwargs
+
+
 def test_main_writes_output_file(monkeypatch, tmp_path):
     monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
     monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)

@@ -16,6 +16,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# 部分リトライ時のサンプリング温度。temperature 0.0 のままだと同じ入力に対して
+# 同じ(失敗した)出力が返りやすいため、リトライでは少しだけ揺らぎを与える。
+_RETRY_TEMPERATURE = 0.4
+
 
 # 構造化出力 (OpenAI 互換 json_schema) のスキーマ。
 # strict モードはトップレベルがオブジェクトである必要があるため results 配列で包む。
@@ -61,9 +65,15 @@ def _make_json_prompt(batch: list[str]) -> str:
 	return p
 
 
-def _send_batch_raw(batch: list[str], use_schema: bool = True) -> str | None:
+def _send_batch_raw(
+	batch: list[str], use_schema: bool = True, temperature: float = 0.0
+) -> str | None:
 	response_format = _RESPONSE_SCHEMA if use_schema else None
-	response = connect.send_message(_make_json_prompt(batch), response_format=response_format)
+	response = connect.send_message(
+		_make_json_prompt(batch),
+		response_format=response_format,
+		temperature=temperature,
+	)
 	return response.choices[0].message.content
 
 
@@ -106,7 +116,11 @@ def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 
 
 def send_batches_json(
-	prompts: list[str], batch_size: int = 10, debug: bool = False, use_schema: bool = True
+	prompts: list[str],
+	batch_size: int = 10,
+	debug: bool = False,
+	use_schema: bool = True,
+	temperature: float = 0.0,
 ) -> list[dict[str, Any]]:
 	all_objs: list[dict[str, Any]] = []
 	# base はバッチ先頭の 0-based グローバルオフセット。
@@ -117,7 +131,7 @@ def send_batches_json(
 	schema_enabled = use_schema
 	for batch in utils.chunk_list(prompts, batch_size):
 		try:
-			raw = _send_batch_raw(batch, use_schema=schema_enabled)
+			raw = _send_batch_raw(batch, use_schema=schema_enabled, temperature=temperature)
 		except Exception:
 			if schema_enabled:
 				logger.warning(
@@ -125,7 +139,7 @@ def send_batches_json(
 					exc_info=debug,
 				)
 				schema_enabled = False
-				raw = _send_batch_raw(batch, use_schema=False)
+				raw = _send_batch_raw(batch, use_schema=False, temperature=temperature)
 			else:
 				raise
 		parsed = _parse_json_response(raw, debug=debug)
@@ -201,12 +215,30 @@ def res_check_json(
 	input_text: list[str],
 	response: list[dict[str, Any]],
 	debug: bool = False,
+	cleaned: list[str] | None = None,
 ) -> tuple[bool, list[dict[str, Any]]]:
-	validated: list[dict[str, Any]] = [obj.copy() for obj in response]
+	"""LLM 出力を入力と突き合わせて検証する。
 
-	# 既定は invalid。件数不一致でも全件破棄せず、index ごとに検証して valid を立てる。
-	for obj in validated:
-		obj["valid"] = False
+	Args:
+		input_text: 呼び出し元が渡した元タイトル（前処理前）。
+		response: send_batches_json の出力。
+		cleaned: 前処理後のタイトル（preprocess 有効時）。title の照合先として
+			input_text と併用する。省略時は input_text のみと照合。
+	Returns:
+		(all_ok, validated)。validated は **入力と同数・同順**（index = 位置+1）で、
+		対応する出力が無い入力には title 空のプレースホルダを置く。余分な出力や
+		重複 index（先勝ち）は捨てられる。各要素の検証は title と入力タイトルの
+		部分文字列関係（NFKC 正規化 + casefold 後）で行い、valid フラグを立てる。
+	"""
+	sources = cleaned if cleaned is not None else input_text
+
+	# 配列順ではなく index (グローバル通し番号) で入力と突き合わせる。重複 index は先勝ち。
+	by_index: dict[int, dict[str, Any]] = {}
+	for obj in response:
+		idx = obj.get("index")
+		if isinstance(idx, bool) or not isinstance(idx, int):
+			continue
+		by_index.setdefault(idx, obj)
 
 	length_ok = len(input_text) == len(response)
 	if not length_ok and debug:
@@ -215,33 +247,35 @@ def res_check_json(
 			"Input length: %d, Output length: %d", len(input_text), len(response)
 		)
 
-	# 配列順ではなく index (グローバル通し番号) で入力と突き合わせる
-	by_index: dict[int, dict[str, Any]] = {
-		obj["index"]: obj
-		for obj in validated
-		if isinstance(obj.get("index"), int) and not isinstance(obj.get("index"), bool)
-	}
-
-	ok_list: list[bool] = []
-	for i in range(len(input_text)):
+	validated: list[dict[str, Any]] = []
+	all_ok = length_ok
+	for i, raw_title in enumerate(input_text):
 		obj = by_index.get(i + 1)
 		if obj is None:
-			ok_list.append(False)
 			if debug:
 				logger.debug("Error: No output item with index %d", i + 1)
+			validated.append({"index": i + 1, "original": raw_title, "title": "", "valid": False})
+			all_ok = False
 			continue
-		orig = obj.get("original", "")
-		# 比較: 少なくとも一方が他方を含む形で一致していることを期待する
-		ok = input_text[i] in orig or orig in input_text[i]
-		obj["valid"] = ok
-		ok_list.append(ok)
+		out = obj.copy()
+		out["index"] = i + 1
+		# original は前処理後のタイトルではなく、呼び出し元が渡した元タイトルへ戻す。
+		out["original"] = raw_title
+		title = str(out.get("title") or "")
+		# LLM が生成した title が入力（または前処理後タイトル）の部分文字列に
+		# なっていることを検証する。original 同士の比較では LLM 出力を検証した
+		# ことにならない点に注意（過去にその恒真チェックで形骸化していた）。
+		ok = utils.is_title_match(title, raw_title, sources[i])
+		out["valid"] = ok
+		validated.append(out)
+		all_ok = all_ok and ok
 		if not ok and debug:
 			logger.debug(
-				"Error: Input title not found in output at index %d: %s vs %s",
-				i, input_text[i], orig
+				"Error: Output title does not match input at index %d: %r vs %r",
+				i, title, raw_title
 			)
 
-	return (length_ok and all(ok_list)), validated
+	return all_ok, validated
 
 
 def main(
@@ -250,12 +284,53 @@ def main(
 	bypass_check: bool = False,
 	debug_mode: bool = False,
 	use_schema: bool = True,
+	preprocess: bool = True,
+	retry_invalid: int = 1,
 ) -> list[dict[str, Any]]:
-	prompts = utils.edit_title(text)
+	"""タイトル一覧から曲名を推論する。
+
+	Args:
+		preprocess: True なら LLM 送信前に utils.clean_title で定型ノイズ
+			（(Official Music Video)、【MV】、feat. ～ など）を除去する。
+		retry_invalid: 検証に失敗した項目だけを再問い合わせする回数。0 で無効。
+			bypass_check=True のときはリトライしない。
+	Returns:
+		入力と同数・同順の dict のリスト（index / original / title / valid）。
+	Raises:
+		ValueError: リトライ後も検証に失敗した場合（bypass_check=False 時のみ）。
+	"""
+	cleaned = [utils.clean_title(t) for t in text] if preprocess else list(text)
+	prompts = utils.edit_title(cleaned)
 	responses = send_batches_json(
 		prompts, batch_size=batch_size, debug=debug_mode, use_schema=use_schema
 	)
-	ok, validated = res_check_json(text, responses, debug_mode)
+	ok, validated = res_check_json(text, responses, debug_mode, cleaned=cleaned)
+
+	# valid=False の項目だけを再問い合わせする部分リトライ。
+	attempts = 0
+	while not ok and not bypass_check and attempts < retry_invalid:
+		attempts += 1
+		invalid_pos = [i for i, obj in enumerate(validated) if not obj.get("valid")]
+		retry_cleaned = [cleaned[i] for i in invalid_pos]
+		if debug_mode:
+			logger.debug("Retrying %d invalid items (attempt %d)", len(invalid_pos), attempts)
+		retry_resp = send_batches_json(
+			utils.edit_title(retry_cleaned),
+			batch_size=batch_size,
+			debug=debug_mode,
+			use_schema=use_schema,
+			temperature=_RETRY_TEMPERATURE,
+		)
+		_, retry_validated = res_check_json(
+			[text[i] for i in invalid_pos], retry_resp, debug_mode, cleaned=retry_cleaned
+		)
+		for j, obj in enumerate(retry_validated):
+			if obj.get("valid"):
+				# サブセット内の通し番号からリスト全体の位置へ戻す
+				obj["index"] = invalid_pos[j] + 1
+				validated[invalid_pos[j]] = obj
+		ok = all(obj.get("valid") for obj in validated)
+
 	if bypass_check or ok:
 		return validated
 	raise ValueError("Output does not match input titles.")
