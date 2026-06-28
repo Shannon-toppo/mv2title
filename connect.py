@@ -106,3 +106,52 @@ def send_message(
         kwargs["max_tokens"] = max_tokens
 
     return client.chat.completions.create(**kwargs)
+
+
+def _selftest(prompt: str = "pingと返答してください。") -> int:
+    """
+    単体実行用: .env の設定でローカル LLM への疎通を確認する。
+    成功時は 0、失敗時は非 0 を返す。
+    """
+    import time
+
+    print(f"BASE_URL = {url}")
+    print(f"MODEL    = {model}")
+    print(f"API_KEY  = {'(set)' if key else '(empty)'}")
+    print(f"prompt   = {prompt!r}")
+    print("-" * 40)
+
+    try:
+        init()
+    except Exception as e:
+        print(f"init() 失敗: {type(e).__name__}: {e}")
+        return 1
+
+    t0 = time.perf_counter()
+    try:
+        res = send_message(prompt, max_tokens=64)
+    except Exception as e:
+        print(f"send_message() 失敗: {type(e).__name__}: {e}")
+        return 2
+    elapsed = time.perf_counter() - t0
+
+    try:
+        content = res.choices[0].message.content
+    except (AttributeError, IndexError) as e:
+        print(f"応答のパースに失敗: {type(e).__name__}: {e}")
+        print(f"raw: {res!r}")
+        return 3
+
+    print(f"応答 ({elapsed:.2f}s): {content!r}")
+    usage = getattr(res, "usage", None)
+    if usage is not None:
+        print(f"usage: {usage}")
+    print("OK")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    user_prompt = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "pingと返答してください。"
+    sys.exit(_selftest(user_prompt))
