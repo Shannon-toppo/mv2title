@@ -12,7 +12,7 @@ The git repo root is the `mv2title/` package itself. Consumer scripts that *use*
 
 - Python **>= 3.12** is required (`utils.chunk_list` uses PEP 695 generic syntax).
 - Dependencies are managed with **uv**: `uv sync` to install, `uv lock` after editing `pyproject.toml`.
-- An LLM must be hosted with an OpenAI-compatible endpoint. Copy `.env.example` to `.env` and set `BASE_URL` (the server), `API_KEY` (anything for local servers), `SYSTEM_PROMPT`, and optionally `MODEL` (default `gemma-4-e2b-it`).
+- An LLM must be hosted with an OpenAI-compatible endpoint. Create a `.env` at the repo root with `BASE_URL` (required, e.g. `http://127.0.0.1:1234/v1/`), `API_KEY` (anything for local servers), `SYSTEM_PROMPT`, and optionally `MODEL` (default `gemma-4-e2b-it`). There is no checked-in template — `.env` is gitignored.
 - Run the built-in demos (each module reads sample titles from gitignored `test.txt`, one per line): `python main_json.py`, or use the CLI: `uv run mv2title "title..."` (see `cli.py`).
 - Tests: `uv run pytest`. The suite is fully offline — `tests/conftest.py` provides a `fake_send` fixture that replaces `connect.send_message`. No linter is configured yet (ruff is planned, see README roadmap).
 
