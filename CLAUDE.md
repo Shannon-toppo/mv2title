@@ -36,7 +36,7 @@ Neither `main()` calls `connect.init()` — **the caller is responsible** for ca
 ### Conventions to match
 
 - Both entry modules use a dual-import shim (`try: from . import connect / except ImportError: import connect`) so they work both as a package and as standalone scripts. Preserve it.
-- **Indentation is inconsistent across files**: `main_json.py` uses **tabs**, while `connect.py`/`main_list.py`/`utils.py` use spaces. Match the existing style of whichever file you edit.
+- **Indentation: all `.py` files use tabs.** Do not introduce 4-space-indented code (a previous mix has been unified). Ruff/EditorConfig is not yet wired up, so be deliberate when editing.
 - `main_json.py` logs via the `logging` module (`debug=`/`debug_mode=` toggles `logger.debug`); `main_list.py` still uses `print`.
 
 ## Consumer scripts (`../file_rename/`)
