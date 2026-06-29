@@ -2,17 +2,17 @@
 構造化出力 (JSON) を用いてタイトル変換を行うモジュール
 main_list.py を参考にしつつ、LLM の出力を JSON 配列として受け取り処理します。
 """
-import json
+
 import ast
+import json
 import logging
 from typing import Any
 
 try:
-	from . import connect
-	from . import utils
+	from . import connect, utils
 except ImportError:
 	import connect  # type: ignore
-	import utils    # type: ignore
+	import utils  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +65,7 @@ def _make_json_prompt(batch: list[str]) -> str:
 	return p
 
 
-def _send_batch_raw(
-	batch: list[str], use_schema: bool = True, temperature: float = 0.0
-) -> str | None:
+def _send_batch_raw(batch: list[str], use_schema: bool = True, temperature: float = 0.0) -> str | None:
 	response_format = _RESPONSE_SCHEMA if use_schema else None
 	response = connect.send_message(
 		_make_json_prompt(batch),
@@ -81,7 +79,7 @@ def _extract_json_substring(s: str) -> str | None:
 	start = s.find("[")
 	end = s.rfind("]")
 	if start != -1 and end != -1 and end > start:
-		return s[start:end+1]
+		return s[start : end + 1]
 	return None
 
 
@@ -111,7 +109,7 @@ def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 				s_inner = s[1:-1]
 			else:
 				s_inner = s
-			parts = [p.strip().strip('\"\'') for p in s_inner.split(",") if p.strip()]
+			parts = [p.strip().strip("\"'") for p in s_inner.split(",") if p.strip()]
 			return parts
 
 
@@ -244,7 +242,9 @@ def res_check_json(
 	if not length_ok and debug:
 		logger.debug(
 			"Error: The number of input titles does not match the number of output items. "
-			"Input length: %d, Output length: %d", len(input_text), len(response)
+			"Input length: %d, Output length: %d",
+			len(input_text),
+			len(response),
 		)
 
 	validated: list[dict[str, Any]] = []
@@ -270,10 +270,7 @@ def res_check_json(
 		validated.append(out)
 		all_ok = all_ok and ok
 		if not ok and debug:
-			logger.debug(
-				"Error: Output title does not match input at index %d: %r vs %r",
-				i, title, raw_title
-			)
+			logger.debug("Error: Output title does not match input at index %d: %r vs %r", i, title, raw_title)
 
 	return all_ok, validated
 
@@ -301,9 +298,7 @@ def main(
 	"""
 	cleaned = [utils.clean_title(t) for t in text] if preprocess else list(text)
 	prompts = utils.edit_title(cleaned)
-	responses = send_batches_json(
-		prompts, batch_size=batch_size, debug=debug_mode, use_schema=use_schema
-	)
+	responses = send_batches_json(prompts, batch_size=batch_size, debug=debug_mode, use_schema=use_schema)
 	ok, validated = res_check_json(text, responses, debug_mode, cleaned=cleaned)
 
 	# valid=False の項目だけを再問い合わせする部分リトライ。

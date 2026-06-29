@@ -2,6 +2,7 @@
 
 LLM へは一切接続せず、connect.send_message をモックしてオフラインで検証する。
 """
+
 from types import SimpleNamespace
 
 import pytest
@@ -37,15 +38,17 @@ def fake_send(monkeypatch):
 			def producer(prompt, **kwargs):
 				try:
 					return next(it)
-				except StopIteration:  # pragma: no cover - 想定外の余分な呼び出し
-					raise AssertionError("fake_send: 応答が不足しています")
+				except StopIteration as e:  # pragma: no cover - 想定外の余分な呼び出し
+					raise AssertionError("fake_send: 応答が不足しています") from e
 
-		def fake(prompt, system_prompt=None, model_name=None,
-				 temperature=0.0, response_format=None, max_tokens=None):
-			state.calls.append(SimpleNamespace(
-				prompt=prompt, response_format=response_format,
-				temperature=temperature,
-			))
+		def fake(prompt, system_prompt=None, model_name=None, temperature=0.0, response_format=None, max_tokens=None):
+			state.calls.append(
+				SimpleNamespace(
+					prompt=prompt,
+					response_format=response_format,
+					temperature=temperature,
+				)
+			)
 			return make_completion(producer(prompt, response_format=response_format))
 
 		monkeypatch.setattr(connect, "send_message", fake)

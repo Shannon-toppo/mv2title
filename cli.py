@@ -9,6 +9,7 @@
 出力:
   --format json|titles|tsv で切り替え、-o/--output でファイルへ書き出し可能。
 """
+
 import argparse
 import json
 import logging
@@ -16,8 +17,7 @@ import sys
 from typing import Any
 
 try:
-	from . import connect
-	from . import main_json
+	from . import connect, main_json
 except ImportError:
 	import connect  # type: ignore
 	import main_json  # type: ignore
@@ -47,10 +47,7 @@ def _format_output(results: list[dict[str, Any]], fmt: str) -> str:
 	if fmt == "tsv":
 		rows = ["index\toriginal\ttitle\tvalid"]
 		for r in results:
-			rows.append(
-				f"{r.get('index', '')}\t{r.get('original', '')}\t"
-				f"{r.get('title', '')}\t{r.get('valid', '')}"
-			)
+			rows.append(f"{r.get('index', '')}\t{r.get('original', '')}\t{r.get('title', '')}\t{r.get('valid', '')}")
 		return "\n".join(rows)
 	raise ValueError(f"未知の出力フォーマット: {fmt}")
 
@@ -143,9 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
 	titles = _read_titles(args)
 	if not titles:
-		parser.error(
-			"タイトルが指定されていません。位置引数・-f ファイル・標準入力のいずれかで渡してください。"
-		)
+		parser.error("タイトルが指定されていません。位置引数・-f ファイル・標準入力のいずれかで渡してください。")
 
 	init_kwargs: dict[str, Any] = {"base_url": args.base_url or connect.url}
 	if args.timeout is not None:

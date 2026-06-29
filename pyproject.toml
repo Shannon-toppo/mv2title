@@ -1,9 +1,10 @@
 [project]
 name = "mv2title"
 version = "0.1.0"
-description = "Add your description here"
+description = "Infer a song title from a noisy music-video title using a local OpenAI-compatible LLM, with output validation."
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
 dependencies = [
     "openai>=2.32.0",
     "python-dotenv>=1.2.2",
@@ -15,4 +16,33 @@ mv2title = "mv2title.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "ruff>=0.14.0",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.format]
+indent-style = "tab"
+quote-style = "double"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "W",   # pycodestyle warnings
+]
+ignore = [
+    "E501",  # line-too-long: prose / Japanese comments often exceed; rely on formatter
+    "W191",  # tab indentation is intentional (see [tool.ruff.format])
+    "E101",  # ditto: mixed-with-tabs warning conflicts with tab indent style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow `assert False` style helpers if any
