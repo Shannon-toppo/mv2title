@@ -29,8 +29,7 @@ def test_set_system_prompt():
 
 
 def test_init_configures_timeout_and_retries():
-	connect.init(api_key="k", base_url="http://localhost:1234/v1/",
-				 timeout=5.0, max_retries=1)
+	connect.init(api_key="k", base_url="http://localhost:1234/v1/", timeout=5.0, max_retries=1)
 	assert connect.client.timeout == 5.0
 	assert connect.client.max_retries == 1
 
@@ -51,7 +50,8 @@ def test_send_message_passes_max_tokens(monkeypatch):
 			return "ok"
 
 	monkeypatch.setattr(
-		connect.client, "chat",
+		connect.client,
+		"chat",
 		type("C", (), {"completions": FakeCompletions()})(),
 	)
 
@@ -69,7 +69,8 @@ def test_send_message_passes_response_format(monkeypatch):
 			return "ok"
 
 	monkeypatch.setattr(
-		connect.client, "chat",
+		connect.client,
+		"chat",
 		type("C", (), {"completions": FakeCompletions()})(),
 	)
 
@@ -89,7 +90,8 @@ def test_send_message_omits_response_format_when_none(monkeypatch):
 			return "ok"
 
 	monkeypatch.setattr(
-		connect.client, "chat",
+		connect.client,
+		"chat",
 		type("C", (), {"completions": FakeCompletions()})(),
 	)
 
@@ -108,7 +110,8 @@ def test_send_message_resolves_model_at_call_time(monkeypatch):
 			return "ok"
 
 	monkeypatch.setattr(
-		connect.client, "chat",
+		connect.client,
+		"chat",
 		type("C", (), {"completions": FakeCompletions()})(),
 	)
 	monkeypatch.setattr(connect, "model", "my-model")

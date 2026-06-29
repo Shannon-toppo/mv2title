@@ -59,6 +59,7 @@ def test_read_titles_missing(tmp_path):
 
 # ---- clean_title ------------------------------------------------------------
 
+
 def test_clean_title_removes_noise_brackets():
 	assert utils.clean_title("Artist「曲名」(Official Music Video)") == "Artist「曲名」"
 	assert utils.clean_title("曲名【MV】") == "曲名"
@@ -93,6 +94,7 @@ def test_clean_title_plain_passthrough():
 
 
 # ---- normalize_for_match / is_title_match -----------------------------------
+
 
 def test_normalize_for_match_nfkc_casefold_whitespace():
 	assert utils.normalize_for_match("ＡＢＣ　Ｓｏｎｇ") == "abc song"

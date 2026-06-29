@@ -4,14 +4,12 @@ import pytest
 
 from mv2title import main_json
 
-
 # ---- _parse_json_response -------------------------------------------------
+
 
 def test_parse_pure_json_array():
 	raw = '[{"index":1,"original":"a","title":"A"}]'
-	assert main_json._parse_json_response(raw) == [
-		{"index": 1, "original": "a", "title": "A"}
-	]
+	assert main_json._parse_json_response(raw) == [{"index": 1, "original": "a", "title": "A"}]
 
 
 def test_parse_json_with_surrounding_text():
@@ -42,15 +40,22 @@ def test_parse_none():
 
 # ---- send_batches_json ----------------------------------------------------
 
+
 def _schema_payload(items):
 	return json.dumps({"results": items}, ensure_ascii=False)
 
 
 def test_send_batches_single_batch_happy(fake_send):
-	fake_send([_schema_payload([
-		{"index": 1, "original": "1.x", "title": "X"},
-		{"index": 2, "original": "2.y", "title": "Y"},
-	])])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "original": "1.x", "title": "X"},
+					{"index": 2, "original": "2.y", "title": "Y"},
+				]
+			)
+		]
+	)
 	prompts = ["1.foo", "2.bar"]
 	objs = main_json.send_batches_json(prompts, batch_size=10)
 	assert [o["index"] for o in objs] == [1, 2]
@@ -59,16 +64,22 @@ def test_send_batches_single_batch_happy(fake_send):
 
 def test_send_batches_index_is_batch_local_converted_to_global(fake_send):
 	# 各バッチで index が 1 から振り直されても、グローバル連番になること
-	fake_send([
-		_schema_payload([
-			{"index": 1, "title": "A"},
-			{"index": 2, "title": "B"},
-		]),
-		_schema_payload([
-			{"index": 1, "title": "C"},
-			{"index": 2, "title": "D"},
-		]),
-	])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "title": "A"},
+					{"index": 2, "title": "B"},
+				]
+			),
+			_schema_payload(
+				[
+					{"index": 1, "title": "C"},
+					{"index": 2, "title": "D"},
+				]
+			),
+		]
+	)
 	prompts = main_json.utils.edit_title(["a", "b", "c", "d"])
 	objs = main_json.send_batches_json(prompts, batch_size=2)
 	assert [o["index"] for o in objs] == [1, 2, 3, 4]
@@ -77,9 +88,15 @@ def test_send_batches_index_is_batch_local_converted_to_global(fake_send):
 
 def test_send_batches_original_is_denumbered(fake_send):
 	# LLM が original を番号付きで echo しても、入力側の生タイトルを採用
-	fake_send([_schema_payload([
-		{"index": 1, "original": "1.ヨルシカ Music Video", "title": "T"},
-	])])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "original": "1.ヨルシカ Music Video", "title": "T"},
+				]
+			)
+		]
+	)
 	prompts = main_json.utils.edit_title(["ヨルシカ Music Video"])
 	objs = main_json.send_batches_json(prompts, batch_size=10)
 	assert objs[0]["original"] == "ヨルシカ Music Video"
@@ -87,11 +104,12 @@ def test_send_batches_original_is_denumbered(fake_send):
 
 def test_send_batches_count_mismatch_does_not_cascade(fake_send):
 	# 1 バッチ目が 1 件しか返さなくても 2 バッチ目の index がずれない
-	fake_send([
-		_schema_payload([{"index": 1, "title": "A"}]),          # 2件中1件のみ
-		_schema_payload([{"index": 1, "title": "C"},
-						 {"index": 2, "title": "D"}]),
-	])
+	fake_send(
+		[
+			_schema_payload([{"index": 1, "title": "A"}]),  # 2件中1件のみ
+			_schema_payload([{"index": 1, "title": "C"}, {"index": 2, "title": "D"}]),
+		]
+	)
 	prompts = main_json.utils.edit_title(["a", "b", "c", "d"])
 	objs = main_json.send_batches_json(prompts, batch_size=2)
 	# 2 バッチ目はグローバル index 3,4 になる
@@ -99,9 +117,15 @@ def test_send_batches_count_mismatch_does_not_cascade(fake_send):
 
 
 def test_send_batches_loose_title_keys(fake_send):
-	fake_send([_schema_payload([
-		{"index": 1, "original": "1.x", "new_title": "FromNew"},
-	])])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "original": "1.x", "new_title": "FromNew"},
+				]
+			)
+		]
+	)
 	objs = main_json.send_batches_json(["1.x"], batch_size=10)
 	assert objs[0]["title"] == "FromNew"
 
@@ -143,6 +167,7 @@ def test_send_batches_falls_back_when_schema_rejected(fake_send):
 
 
 # ---- res_check_json -------------------------------------------------------
+
 
 def test_res_check_all_valid():
 	inp = ["a song", "b song"]
@@ -246,10 +271,17 @@ def test_res_check_matches_against_cleaned_source():
 
 # ---- main -----------------------------------------------------------------
 
+
 def test_main_returns_validated(fake_send):
-	fake_send([_schema_payload([
-		{"index": 1, "original": "1.a song", "title": "a"},
-	])])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "original": "1.a song", "title": "a"},
+				]
+			)
+		]
+	)
 	out = main_json.main(["a song"], batch_size=10)
 	assert out[0]["title"] == "a"
 	assert out[0]["valid"] is True
@@ -257,19 +289,27 @@ def test_main_returns_validated(fake_send):
 
 def test_main_raises_on_validation_failure(fake_send):
 	# LLM が 2 件中 1 件しか返さない → 失敗分の部分リトライも失敗 → ValueError
-	fake_send([
-		_schema_payload([{"index": 1, "title": "a"}]),
-		_schema_payload([]),  # リトライ分も空応答
-	])
+	fake_send(
+		[
+			_schema_payload([{"index": 1, "title": "a"}]),
+			_schema_payload([]),  # リトライ分も空応答
+		]
+	)
 	with pytest.raises(ValueError):
 		main_json.main(["a song", "b song"], batch_size=10)
 
 
 def test_main_bypass_check(fake_send):
 	# 件数不一致でも bypass_check なら例外を出さず返す（リトライもしない）
-	fake_send([_schema_payload([
-		{"index": 1, "title": "a"},
-	])])
+	fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "title": "a"},
+				]
+			)
+		]
+	)
 	out = main_json.main(["a song", "b song"], batch_size=10, bypass_check=True)
 	assert len(out) == 2
 	assert out[0]["title"] == "a"
@@ -279,13 +319,17 @@ def test_main_bypass_check(fake_send):
 
 def test_main_partial_retry_recovers(fake_send):
 	# 検証に失敗した項目だけが再問い合わせされ、成功すれば全体が valid になる
-	state = fake_send([
-		_schema_payload([
-			{"index": 1, "title": "a"},
-			{"index": 2, "title": "zzz"},  # b song と不一致
-		]),
-		_schema_payload([{"index": 1, "title": "b"}]),  # リトライは 1 件のみ
-	])
+	state = fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "title": "a"},
+					{"index": 2, "title": "zzz"},  # b song と不一致
+				]
+			),
+			_schema_payload([{"index": 1, "title": "b"}]),  # リトライは 1 件のみ
+		]
+	)
 	out = main_json.main(["a song", "b song"], batch_size=10)
 	assert [o["title"] for o in out] == ["a", "b"]
 	assert [o["index"] for o in out] == [1, 2]
