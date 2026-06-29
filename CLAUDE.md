@@ -14,7 +14,8 @@ The git repo root is the `mv2title/` package itself. Consumer scripts that *use*
 - Dependencies are managed with **uv**: `uv sync` to install, `uv lock` after editing `pyproject.toml`.
 - An LLM must be hosted with an OpenAI-compatible endpoint. Create a `.env` at the repo root with `BASE_URL` (required, e.g. `http://127.0.0.1:1234/v1/`), `API_KEY` (anything for local servers), `SYSTEM_PROMPT`, and optionally `MODEL` (default `gemma-4-e2b-it`). There is no checked-in template — `.env` is gitignored.
 - Run the built-in demos (each module reads sample titles from gitignored `test.txt`, one per line): `python main_json.py`, or use the CLI: `uv run mv2title "title..."` (see `cli.py`).
-- Tests: `uv run pytest`. The suite is fully offline — `tests/conftest.py` provides a `fake_send` fixture that replaces `connect.send_message`. No linter is configured yet (ruff is planned, see README roadmap).
+- Tests: `uv run pytest`. The suite is fully offline — `tests/conftest.py` provides a `fake_send` fixture that replaces `connect.send_message`.
+- Lint/format: `uv run ruff check .` and `uv run ruff format .` (config in `[tool.ruff]`). CI (`.github/workflows/ci.yml`) runs ruff + pytest on push to master and on PRs.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ Neither `main()` calls `connect.init()` — **the caller is responsible** for ca
 ### Conventions to match
 
 - Both entry modules use a dual-import shim (`try: from . import connect / except ImportError: import connect`) so they work both as a package and as standalone scripts. Preserve it.
-- **Indentation: all `.py` files use tabs.** Do not introduce 4-space-indented code (a previous mix has been unified). Ruff/EditorConfig is not yet wired up, so be deliberate when editing.
+- **Indentation: all `.py` files use tabs.** `ruff format` enforces this (`[tool.ruff.format] indent-style = "tab"`).
 - `main_json.py` logs via the `logging` module (`debug=`/`debug_mode=` toggles `logger.debug`); `main_list.py` still uses `print`.
 
 ## Consumer scripts (`../file_rename/`)

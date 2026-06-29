@@ -1,9 +1,9 @@
+import os
+from typing import Any
+
+from dotenv import load_dotenv
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
-from dotenv import load_dotenv
-from typing import Any
-import os
-
 
 client: OpenAI | None = None
 _system_prompt: str | None = None

@@ -71,12 +71,16 @@ cat titles.txt | mv2title --format titles
 ### main_list について（非推奨）
 `main_list.py` は LLM 出力をプレーンなリスト文字列として受け取る旧実装で、現在は呼び出すと `DeprecationWarning` が出ます。将来のリリースで削除予定のため、`main_json` を使用してください。
 
+### 開発（lint / test）
+- `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W`）。
+- `uv run ruff format .` — フォーマット。
+- `uv run pytest` — テスト。CI（`.github/workflows/ci.yml`）でも同じコマンドを実行します。
+
 ### 今後の開発方針（Roadmap）
 実装予定だが未着手の項目:
 
-1. **開発基盤の整備** — ruff の導入、GitHub Actions による CI（pytest + ruff）、`pyproject.toml` のメタデータ（description 等）の整備。
-2. **配布形態の改善** — 消費者スクリプト（`../file_rename/` など）が `sys.path` 操作でパッケージを参照している現状を、editable インストール（`uv pip install -e`）に置き換える。あわせて `mutagen` / `yt-dlp` を optional-dependencies（extras。例: `mv2title[rename]`）として宣言する。
-3. **pydantic によるレスポンスモデル化** — `_parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
+1. **配布形態の改善** — 消費者スクリプト（`../file_rename/` など）が `sys.path` 操作でパッケージを参照している現状を、editable インストール（`uv pip install -e`）に置き換える。あわせて `mutagen` / `yt-dlp` を optional-dependencies（extras。例: `mv2title[rename]`）として宣言する。
+2. **pydantic によるレスポンスモデル化** — `_parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
 
 ### ライセンス
 MIT

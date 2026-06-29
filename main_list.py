@@ -3,15 +3,15 @@
 LLM の出力をプレーンなリスト文字列として受け取るレガシーパスです。
 将来のリリースで削除予定のため、バグ修正以外の変更は行いません。
 """
+
 import ast
 import warnings
 
 try:
-	from . import connect
-	from . import utils
+	from . import connect, utils
 except ImportError:
 	import connect  # type: ignore
-	import utils    # type: ignore
+	import utils  # type: ignore
 
 
 def _send_batch_raw(batch: list[str]) -> str | None:
@@ -59,10 +59,7 @@ def res_check(input_text: list[str], response: list[str], debug: bool) -> bool:
 		return False
 
 	# 位置対応で比較: i 番目の入力と i 番目の出力のどちらかが他方を含むこと
-	result_list = [
-		(response[i] in input_text[i]) or (input_text[i] in response[i])
-		for i in range(len(input_text))
-	]
+	result_list = [(response[i] in input_text[i]) or (input_text[i] in response[i]) for i in range(len(input_text))]
 	if all(result_list):
 		return True
 
@@ -85,8 +82,7 @@ def main(
 		main_json.main() を使用してください。このモジュールは将来のリリースで削除されます。
 	"""
 	warnings.warn(
-		"main_list.main() は非推奨です。main_json.main() を使用してください"
-		"（将来のリリースで削除予定）。",
+		"main_list.main() は非推奨です。main_json.main() を使用してください（将来のリリースで削除予定）。",
 		DeprecationWarning,
 		stacklevel=2,
 	)
