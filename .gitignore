@@ -12,6 +12,8 @@ wheels/
 
 # Local demo input for module __main__ blocks (not version-controlled)
 test.txt
+test2.txt
+test.json
 
 # pytest / coverage
 .pytest_cache/

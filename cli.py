@@ -2,9 +2,10 @@
 コマンドラインから mv2title を実行するエントリポイント。
 
 入力ソース（優先順位）:
-  1. 位置引数で渡されたタイトル（例: `mv2title "曲A" "曲B"`）
-  2. -f/--input-file で指定したファイル（1 行 1 タイトル）
-  3. 標準入力（パイプやリダイレクト。例: `cat titles.txt | mv2title`）
+  1. --input-json で指定した JSON ファイル（タイトルとチャンネル名を構造化入力）
+  2. 位置引数で渡されたタイトル（例: `mv2title "曲A" "曲B"`）
+  3. -f/--input-file で指定したファイル（1 行 1 タイトル）
+  4. 標準入力（パイプやリダイレクト。例: `cat titles.txt | mv2title`）
 
 出力:
   --format json|titles|tsv で切り替え、-o/--output でファイルへ書き出し可能。
@@ -21,6 +22,30 @@ try:
 except ImportError:
 	import connect  # type: ignore
 	import main_json  # type: ignore
+
+
+def _read_input_json(path: str) -> tuple[list[str], list[str | None]]:
+	"""JSON ファイルからタイトルとチャンネル名を読み取る。
+
+	フォーマット: ``[{"title": "...", "channel": "..."}, ...]``
+	``channel`` キーは省略可能（省略時は None として扱う）。
+	"""
+	with open(path, encoding="utf-8") as f:
+		data = json.load(f)
+	if not isinstance(data, list):
+		raise ValueError("--input-json のファイルはJSON配列である必要があります。")
+	titles: list[str] = []
+	channels: list[str | None] = []
+	for i, item in enumerate(data):
+		if not isinstance(item, dict) or "title" not in item:
+			raise ValueError(f'--input-json の要素 {i} に "title" キーがありません。')
+		t = str(item["title"]).strip()
+		if not t:
+			continue
+		titles.append(t)
+		ch = item.get("channel")
+		channels.append(str(ch).strip() if ch is not None else None)
+	return titles, channels
 
 
 def _read_titles(args: argparse.Namespace) -> list[str]:
@@ -66,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
 		"-f",
 		"--input-file",
 		help="1 行 1 タイトルの入力ファイル。",
+	)
+	parser.add_argument(
+		"--input-json",
+		metavar="FILE",
+		help='JSON 入力ファイル。[{"title": "...", "channel": "..."}] 形式。channel は省略可。',
 	)
 	parser.add_argument(
 		"-o",
@@ -122,6 +152,10 @@ def build_parser() -> argparse.ArgumentParser:
 		help="使用するモデル名。省略時は .env の MODEL を使用します。",
 	)
 	parser.add_argument(
+		"--channel",
+		help="チャンネル名。全タイトルに同一のチャンネル名をアーティスト名のヒントとして適用します。",
+	)
+	parser.add_argument(
 		"--debug",
 		action="store_true",
 		help="デバッグログを有効化します。",
@@ -138,9 +172,24 @@ def main(argv: list[str] | None = None) -> int:
 		format="%(levelname)s:%(name)s:%(message)s",
 	)
 
-	titles = _read_titles(args)
+	if args.input_json:
+		try:
+			titles, json_channels = _read_input_json(args.input_json)
+		except (ValueError, json.JSONDecodeError, OSError) as e:
+			print(f"JSON 入力エラー: {e}", file=sys.stderr)
+			return 2
+		channels: list[str | None] | None = json_channels
+	else:
+		titles = _read_titles(args)
+		channels = None
+
 	if not titles:
-		parser.error("タイトルが指定されていません。位置引数・-f ファイル・標準入力のいずれかで渡してください。")
+		parser.error(
+			"タイトルが指定されていません。位置引数・-f ファイル・標準入力・--input-json のいずれかで渡してください。"
+		)
+
+	if args.channel:
+		channels = [args.channel] * len(titles)
 
 	init_kwargs: dict[str, Any] = {"base_url": args.base_url or connect.url}
 	if args.timeout is not None:
@@ -157,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
 	try:
 		results = main_json.main(
 			titles,
+			channels=channels,
 			batch_size=args.batch_size,
 			bypass_check=args.bypass_check,
 			debug_mode=args.debug,
