@@ -31,12 +31,25 @@ results = main_json.main(["アーティスト『曲名』(Official Music Video)"
 #      "title": "曲名", "valid": True}]
 ```
 
+チャンネル名（アーティスト名）が分かっている場合は `channels` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります。
+
+```python
+results = main_json.main(
+    ["YOASOBI「アイドル」Official Music Video"],
+    channels=["Official YOASOBI"],
+)
+# => [{"index": 1, ..., "title": "アイドル", "valid": True}]
+```
+
+`channels` はタイトルリストと同じ長さのリストで、各要素にチャンネル名（`str`）または不明時に `None` を指定します。省略時（`channels=None`）は従来どおりチャンネル情報なしで推論します。
+
 LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-community/gemma-4-E2B-it-GGUF))を使用しました。
 
 `main_json.main()` のオプション
 
 | オプション名 | 初期値 | 備考 |
 |:------------|:-----:|:-----|
+|channels|None|各タイトルに対応するチャンネル名のリスト。アーティスト名のヒントとして LLM プロンプトに含めます。`None` エントリはチャンネル不明を意味します。
 |batch_size|10|入力リストが長い場合に、いくつで分割するかを選択できます。
 |bypass_check|False|検証に失敗しても例外を出さず結果を返します（各項目の `valid` フラグは付与されます）。
 |preprocess|True|LLM 送信前に定型ノイズ（`(Official Music Video)`、`【MV】`、`feat. ～` など）を正規表現で除去します。`False` で無効化できます。
@@ -59,7 +72,26 @@ mv2title "タイトル1" "タイトル2"
 mv2title -f titles.txt --format tsv
 cat titles.txt | mv2title --format titles
 ```
-主なフラグ: `--no-preprocess` / `--retry N` / `--timeout SEC` / `--no-schema` / `--bypass-check` / `-b N` / `-o FILE` / `--debug`
+主なフラグ: `--channel CHANNEL` / `--input-json FILE` / `--no-preprocess` / `--retry N` / `--timeout SEC` / `--no-schema` / `--bypass-check` / `-b N` / `-o FILE` / `--debug`
+
+`--channel` は全タイトルに同一のチャンネル名を適用します。例:
+```
+mv2title --channel "Official YOASOBI" "YOASOBI「アイドル」Official Music Video"
+```
+
+`--input-json` はタイトルごとに異なるチャンネル名を指定したい場合に使います。JSON ファイルのフォーマット:
+```json
+[
+  {"title": "YOASOBI「アイドル」Official Music Video", "channel": "Official YOASOBI"},
+  {"title": "ヨルシカ - 春泥棒", "channel": "ヨルシカ"},
+  {"title": "チャンネル不明のタイトル"}
+]
+```
+各要素は `title` キー（必須）と `channel` キー（省略可）を持つオブジェクトです。
+```
+mv2title --input-json titles.json --format titles
+```
+`--input-json` と `--channel` を同時に指定した場合、`--channel` が優先されます（全タイトルに同一チャンネルが適用されます）。
 
 ### 検証ロジック
 出力の各項目について以下を確認し、`valid` フラグを立てます。文字列比較は **NFKC 正規化 + casefold + 空白圧縮** 後に行うため、全角/半角や大文字小文字の違いは吸収されます。

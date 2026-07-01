@@ -363,3 +363,104 @@ def test_main_no_preprocess_keeps_raw_title(fake_send):
 	state = fake_send([_schema_payload([{"index": 1, "title": "a song"}])])
 	main_json.main(["a song (Official Music Video)"], preprocess=False)
 	assert "Official Music Video" in state.calls[0].prompt
+
+
+# ---- channels ---------------------------------------------------------------
+
+
+def test_make_json_prompt_with_channels():
+	batch = ["1.YOASOBI「アイドル」", "2.ヨルシカ - 春泥棒"]
+	channels = ["Official YOASOBI", "ヨルシカ"]
+	prompt = main_json._make_json_prompt(batch, channels=channels)
+	assert "[Official YOASOBI]" in prompt
+	assert "[ヨルシカ]" in prompt
+	assert "チャンネル名" in prompt
+
+
+def test_make_json_prompt_channels_none_backward_compat():
+	batch = ["1.some title"]
+	prompt_without = main_json._make_json_prompt(batch)
+	prompt_none = main_json._make_json_prompt(batch, channels=None)
+	assert prompt_without == prompt_none
+	assert "チャンネル名" not in prompt_without
+
+
+def test_make_json_prompt_mixed_channels():
+	batch = ["1.title A", "2.title B", "3.title C"]
+	channels = ["ChA", None, "ChC"]
+	prompt = main_json._make_json_prompt(batch, channels=channels)
+	assert "[ChA]" in prompt
+	assert "[ChC]" in prompt
+	assert "チャンネル名" in prompt
+	# チャンネルなしの項目にはブラケットが付かない
+	assert "2.title B" in prompt
+
+
+def test_make_json_prompt_empty_channel_treated_as_none():
+	batch = ["1.title"]
+	channels = ["  "]
+	prompt = main_json._make_json_prompt(batch, channels=channels)
+	assert "チャンネル名" not in prompt
+	assert "1.title" in prompt
+
+
+def test_send_batches_channels_sliced_across_batches(fake_send):
+	state = fake_send(
+		[
+			_schema_payload([{"index": 1, "title": "A"}, {"index": 2, "title": "B"}]),
+			_schema_payload([{"index": 1, "title": "C"}]),
+		]
+	)
+	prompts = main_json.utils.edit_title(["a", "b", "c"])
+	channels = ["ch1", "ch2", "ch3"]
+	main_json.send_batches_json(prompts, channels=channels, batch_size=2)
+	assert "[ch1]" in state.calls[0].prompt
+	assert "[ch2]" in state.calls[0].prompt
+	assert "[ch3]" in state.calls[1].prompt
+	assert "[ch1]" not in state.calls[1].prompt
+
+
+def test_main_with_channels(fake_send):
+	state = fake_send([_schema_payload([{"index": 1, "title": "アイドル"}])])
+	out = main_json.main(
+		["YOASOBI「アイドル」Official Music Video"],
+		channels=["Official YOASOBI"],
+	)
+	assert "[Official YOASOBI]" in state.calls[0].prompt
+	assert out[0]["title"] == "アイドル"
+	assert out[0]["valid"] is True
+
+
+def test_main_channels_partial_retry(fake_send):
+	state = fake_send(
+		[
+			_schema_payload(
+				[
+					{"index": 1, "title": "a"},
+					{"index": 2, "title": "zzz"},
+				]
+			),
+			_schema_payload([{"index": 1, "title": "b"}]),
+		]
+	)
+	out = main_json.main(
+		["a song", "b song"],
+		channels=["chA", "chB"],
+		batch_size=10,
+	)
+	assert [o["title"] for o in out] == ["a", "b"]
+	# リトライプロンプトには失敗した項目のチャンネルだけが含まれる
+	assert "[chB]" in state.calls[1].prompt
+	assert "[chA]" not in state.calls[1].prompt
+
+
+def test_main_channels_length_mismatch_raises():
+	with pytest.raises(ValueError, match="channels の長さ"):
+		main_json.main(["a", "b"], channels=["ch1"])
+
+
+def test_main_channels_none_backward_compat(fake_send):
+	state = fake_send([_schema_payload([{"index": 1, "title": "a"}])])
+	out = main_json.main(["a song"], channels=None)
+	assert "チャンネル名" not in state.calls[0].prompt
+	assert out[0]["valid"] is True

@@ -176,3 +176,138 @@ def test_main_writes_output_file(monkeypatch, tmp_path):
 	assert rc == 0
 	data = json.loads(out.read_text(encoding="utf-8"))
 	assert data[0]["title"] == "T"
+
+
+def test_build_parser_channel_flag():
+	p = cli.build_parser()
+	ns = p.parse_args(["--channel", "YOASOBI", "foo"])
+	assert ns.channel == "YOASOBI"
+
+
+def test_main_passes_channel_to_main_json(monkeypatch):
+	monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+	monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+	captured = {}
+
+	def fake_main(titles, **kw):
+		captured.update(kw)
+		return [{"index": i + 1, "original": t, "title": "T", "valid": True} for i, t in enumerate(titles)]
+
+	monkeypatch.setattr(cli.main_json, "main", fake_main)
+	rc = cli.main(["--channel", "MyCh", "a", "b"])
+	assert rc == 0
+	assert captured["channels"] == ["MyCh", "MyCh"]
+
+
+def test_main_no_channel_passes_none(monkeypatch):
+	monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+	monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+	captured = {}
+
+	def fake_main(titles, **kw):
+		captured.update(kw)
+		return []
+
+	monkeypatch.setattr(cli.main_json, "main", fake_main)
+	assert cli.main(["x"]) == 0
+	assert captured["channels"] is None
+
+
+# ---- --input-json -----------------------------------------------------------
+
+
+def test_read_input_json(tmp_path):
+	p = tmp_path / "in.json"
+	p.write_text(
+		json.dumps(
+			[
+				{"title": "YOASOBI「アイドル」", "channel": "Official YOASOBI"},
+				{"title": "ヨルシカ - 春泥棒"},
+			],
+			ensure_ascii=False,
+		),
+		encoding="utf-8",
+	)
+	titles, channels = cli._read_input_json(str(p))
+	assert titles == ["YOASOBI「アイドル」", "ヨルシカ - 春泥棒"]
+	assert channels == ["Official YOASOBI", None]
+
+
+def test_read_input_json_skips_empty_title(tmp_path):
+	p = tmp_path / "in.json"
+	p.write_text('[{"title": "a"}, {"title": "  "}, {"title": "b"}]', encoding="utf-8")
+	titles, channels = cli._read_input_json(str(p))
+	assert titles == ["a", "b"]
+	assert len(channels) == 2
+
+
+def test_read_input_json_rejects_non_array(tmp_path):
+	p = tmp_path / "in.json"
+	p.write_text('{"title": "a"}', encoding="utf-8")
+	import pytest
+
+	with pytest.raises(ValueError, match="JSON配列"):
+		cli._read_input_json(str(p))
+
+
+def test_read_input_json_rejects_missing_title(tmp_path):
+	p = tmp_path / "in.json"
+	p.write_text('[{"channel": "ch"}]', encoding="utf-8")
+	import pytest
+
+	with pytest.raises(ValueError, match="title"):
+		cli._read_input_json(str(p))
+
+
+def test_main_input_json_end_to_end(monkeypatch, tmp_path):
+	monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+	monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+	captured_titles = []
+	captured_kw = {}
+
+	def fake_main(titles, **kw):
+		captured_titles.extend(titles)
+		captured_kw.update(kw)
+		return [{"index": i + 1, "original": t, "title": "T", "valid": True} for i, t in enumerate(titles)]
+
+	monkeypatch.setattr(cli.main_json, "main", fake_main)
+
+	p = tmp_path / "in.json"
+	p.write_text(
+		json.dumps(
+			[
+				{"title": "title A", "channel": "chA"},
+				{"title": "title B"},
+			],
+			ensure_ascii=False,
+		),
+		encoding="utf-8",
+	)
+	rc = cli.main(["--input-json", str(p)])
+	assert rc == 0
+	assert captured_titles == ["title A", "title B"]
+	assert captured_kw["channels"] == ["chA", None]
+
+
+def test_main_input_json_channel_flag_overrides(monkeypatch, tmp_path):
+	monkeypatch.setattr(cli.connect, "init", lambda **kw: None)
+	monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+	captured_kw = {}
+
+	def fake_main(titles, **kw):
+		captured_kw.update(kw)
+		return [{"index": i + 1, "original": t, "title": "T", "valid": True} for i, t in enumerate(titles)]
+
+	monkeypatch.setattr(cli.main_json, "main", fake_main)
+
+	p = tmp_path / "in.json"
+	p.write_text('[{"title": "a", "channel": "fromJson"}, {"title": "b"}]', encoding="utf-8")
+	rc = cli.main(["--input-json", str(p), "--channel", "override"])
+	assert rc == 0
+	assert captured_kw["channels"] == ["override", "override"]
+
+
+def test_main_input_json_invalid_file(monkeypatch, capsys):
+	monkeypatch.setattr(cli.connect, "url", "http://x/v1/", raising=False)
+	rc = cli.main(["--input-json", "/nonexistent/file.json"])
+	assert rc == 2
