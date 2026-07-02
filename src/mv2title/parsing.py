@@ -52,10 +52,7 @@ def parse_json_response(raw: str | None, debug: bool = False) -> Any:
 			logger.warning("parse fallback fired: ast.literal_eval (削除候補の計測ログ)")
 			return parsed
 		except Exception:
-			if s.startswith("[") and s.endswith("]"):
-				s_inner = s[1:-1]
-			else:
-				s_inner = s
+			s_inner = s[1:-1] if s.startswith("[") and s.endswith("]") else s
 			parts = [p.strip().strip("\"'") for p in s_inner.split(",") if p.strip()]
 			logger.warning("parse fallback fired: comma-split (削除候補の計測ログ)")
 			return parts

@@ -20,6 +20,6 @@ __all__ = [
 	"LLMClient",
 	"TitleInput",
 	"TitleResult",
-	"extract_titles",
 	"__version__",
+	"extract_titles",
 ]

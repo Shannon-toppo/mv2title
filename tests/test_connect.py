@@ -39,9 +39,9 @@ def _fake_completions(monkeypatch, client: LLMClient) -> dict:
 
 
 def test_config_rejects_empty_base_url():
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="BASE_URL"):
 		Config(base_url="")
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="BASE_URL"):
 		Config(base_url=None)  # type: ignore[arg-type]
 
 
@@ -67,7 +67,7 @@ def test_from_env_reads_env(clean_env, monkeypatch):
 
 
 def test_from_env_missing_base_url_raises(clean_env):
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="BASE_URL"):
 		Config.from_env()
 
 

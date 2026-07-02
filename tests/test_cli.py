@@ -7,6 +7,8 @@ from mv2title.models import TitleResult
 
 
 def _args(**over):
+	import argparse
+
 	base = dict(
 		titles=[],
 		input_file=None,
@@ -20,7 +22,7 @@ def _args(**over):
 		debug=False,
 	)
 	base.update(over)
-	return type("NS", (), base)()
+	return argparse.Namespace(**base)
 
 
 def _fake_extract(inputs, client, **kw):
@@ -99,7 +101,7 @@ def test_format_tsv():
 
 
 def test_format_unknown():
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="未知の出力フォーマット"):
 		cli._format_output([], "xml")
 
 

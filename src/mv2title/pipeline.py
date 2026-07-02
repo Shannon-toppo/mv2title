@@ -23,7 +23,7 @@ _RETRY_TEMPERATURE = 0.4
 def _send_batch_raw(
 	batch: list[str],
 	client: LLMClient,
-	channels: list[str | None] | None = None,
+	channels: Sequence[str | None] | None = None,
 	use_schema: bool = True,
 	temperature: float = 0.0,
 ) -> str | None:
@@ -39,7 +39,7 @@ def _send_batch_raw(
 def send_batches(
 	prompts: list[str],
 	client: LLMClient,
-	channels: list[str | None] | None = None,
+	channels: Sequence[str | None] | None = None,
 	batch_size: int = 10,
 	debug: bool = False,
 	use_schema: bool = True,

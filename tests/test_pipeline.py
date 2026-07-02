@@ -120,7 +120,7 @@ def test_extract_titles_raises_on_validation_failure(fake_client):
 			_schema_payload([]),  # リトライ分も空応答
 		]
 	)
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="does not match input titles"):
 		pipeline.extract_titles(["a song", "b song"], state.client, batch_size=10)
 
 
@@ -163,7 +163,7 @@ def test_extract_titles_retry_disabled(fake_client):
 	# retry_invalid=0 なら再問い合わせせず即座に失敗する
 	# （余計な呼び出しがあれば conftest の fake_client が AssertionError を出す）
 	state = fake_client([_schema_payload([{"index": 1, "title": "zzz"}])])
-	with pytest.raises(ValueError):
+	with pytest.raises(ValueError, match="does not match input titles"):
 		pipeline.extract_titles(["a song"], state.client, batch_size=10, retry_invalid=0)
 
 

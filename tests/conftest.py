@@ -4,6 +4,7 @@ LLM へは一切接続せず、fake_client(LLMClient 互換のフェイク)を
 pipeline.extract_titles などへ注入してオフラインで検証する。
 """
 
+from collections.abc import Callable, Sequence
 from types import SimpleNamespace
 
 import pytest
@@ -16,13 +17,13 @@ def make_completion(content: str):
 	return SimpleNamespace(choices=[choice])
 
 
-def _make_producer(responses):
+def _make_producer(responses: Sequence[str] | Callable[..., str]) -> Callable[..., str]:
 	if callable(responses):
 		return responses
 	seq = list(responses)
 	it = iter(seq)
 
-	def producer(prompt, **kwargs):
+	def producer(prompt: str, **kwargs) -> str:
 		try:
 			return next(it)
 		except StopIteration as e:  # pragma: no cover - 想定外の余分な呼び出し

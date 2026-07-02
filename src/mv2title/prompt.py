@@ -1,6 +1,7 @@
 """LLM プロンプトの組み立て(番号付与・チャンネルヒント・構造化出力スキーマ)。"""
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 _INDEX_PREFIX = re.compile(r"^\d+\.")
@@ -49,7 +50,7 @@ def strip_index(title: str) -> str:
 	return _INDEX_PREFIX.sub("", title, count=1)
 
 
-def make_json_prompt(batch: list[str], channels: list[str | None] | None = None) -> str:
+def make_json_prompt(batch: list[str], channels: Sequence[str | None] | None = None) -> str:
 	"""番号付きタイトルのバッチから LLM への指示文を組み立てる。
 
 	channels が指定されている場合、各項目に `[チャンネル名]` プレフィックスを

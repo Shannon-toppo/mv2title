@@ -106,10 +106,13 @@ mv2title --input-json titles.json --format titles
 
 全項目が valid かつ件数が一致したときのみ全体を正当と判断します。失敗時は `retry_invalid` 回まで失敗項目のみを再問い合わせし、それでも失敗が残れば `ValueError` を送出します（`bypass_check=True` の場合は送出せずそのまま返します）。
 
-### 開発（lint / test）
-- `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W`）。
+### 開発（lint / typecheck / test）
+- `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W/SIM/C4/RUF/PT/ARG`）。
 - `uv run ruff format .` — フォーマット。
-- `uv run pytest` — テスト。CI（`.github/workflows/ci.yml`）でも同じコマンドを実行します。
+- `uv run pyright` — 型チェック（`[tool.pyright]`、standard モード）。
+- `uv run pytest` — テスト（`--cov=mv2title` でカバレッジ）。CI（`.github/workflows/ci.yml`）でも同じコマンドを実行します。
+
+変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
 ### 今後の開発方針（Roadmap）
 実装予定だが未着手の項目:
