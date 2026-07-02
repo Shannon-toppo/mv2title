@@ -16,13 +16,13 @@ mv2title = "mv2title.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.0",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-indent-width = 4
 
 [tool.ruff.format]
 indent-style = "tab"

@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `mv2title` is a library that infers a **song title** from a noisy music-video title (e.g. YouTube titles full of artist names, `feat.`, brackets, "Official Music Video", etc.). Inference is done by a **local, OpenAI-compatible LLM** (developed against gemma served via LM Studio / llama.cpp), and the library additionally **validates** the LLM output before returning it.
 
-The git repo root is the `mv2title/` package itself. Consumer scripts that *use* the library live one directory up (`../File_rename.py`, `../GetFile_name.py`) and in `../file_rename/` (`rename.py`, `download.py`) — these are outside the repo and reach the package via `sys.path` manipulation.
+The git repo root is the `mv2title/` package itself. Consumer scripts that *use* the library live in `../file_rename/` (`rename.py`, `download.py`) — these are outside the repo and reach the package via `sys.path` manipulation. (The former consumers `../File_rename.py` and `../GetFile_name.py` were deleted on 2026-07-02.)
+
+A phased refactoring plan (with per-task model-delegation notes) lives in `docs/refactoring-plan.md`; consult it before structural changes.
 
 ## Setup & commands
 
