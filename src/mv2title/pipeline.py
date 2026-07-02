@@ -8,19 +8,10 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-try:
-	from . import parsing, prompt, utils, validation
-	from .connect import LLMClient
-	from .models import TitleInput, TitleResult
-	from .preprocess import clean_title
-except ImportError:
-	import parsing  # type: ignore
-	import prompt  # type: ignore
-	import utils  # type: ignore
-	import validation  # type: ignore
-	from connect import LLMClient  # type: ignore
-	from models import TitleInput, TitleResult  # type: ignore
-	from preprocess import clean_title  # type: ignore
+from . import parsing, prompt, utils, validation
+from .connect import LLMClient
+from .models import TitleInput, TitleResult
+from .preprocess import clean_title
 
 logger = logging.getLogger(__name__)
 

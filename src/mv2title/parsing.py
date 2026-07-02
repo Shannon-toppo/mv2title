@@ -8,10 +8,7 @@ import json
 import logging
 from typing import Any
 
-try:
-	from . import prompt
-except ImportError:
-	import prompt  # type: ignore
+from . import prompt
 
 logger = logging.getLogger(__name__)
 

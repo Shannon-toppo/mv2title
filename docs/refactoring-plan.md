@@ -129,19 +129,17 @@
 
 ---
 
-## フェーズ 4: 公開 API の確立とパッケージ整備 🔶 一部実施 (2026-07-02)
+## フェーズ 4: 公開 API の確立とパッケージ整備 ✅ 実施済み (2026-07-02)
 
-バージョン 0.3.0。**残タスクはコンシューマ同時修正の要判断(下記⚠️)がありユーザー確認待ち。**
+バージョン 0.3.0。ユーザー決定(2026-07-02): **フェーズ 6 と一括で実施**。
 
-| タスク | 委譲 | 備考 |
+| タスク | 委譲 | 状態 |
 |---|---|---|
-| 公開 API の設計: `__init__.py` に `extract_titles`, `TitleInput`, `TitleResult`, `LLMClient`, `Config`, `__version__`, `__all__` | 【F】 | ✅ 実施済み(追加のみで互換影響なし) |
-| パッケージングの正常化: `[build-system]` を追加し、リポジトリルート=パッケージという特殊レイアウトを解消(モジュールを `src/mv2title/` などへ移動)して `uv run mv2title`(console script)を機能させる | 【F】設計 → 【O】実施 | フェーズ 2 で console script が元から壊れていたことが判明。pytest が動くのはルート `__init__.py` 経由の偶然なので、レイアウト変更時はテストの import 経路も要修正 |
-| dual-import shim(`try: from . import ...`)の除去、パッケージ内 import の相対統一 | 【S】 | コンシューマの editable install 移行(フェーズ 6)が前提。CLAUDE.md の「Preserve it」記述も同時更新 |
-| フェーズ 2〜3 の互換シム(`connect.init()` ラッパ・`main_json` シム)の最終削除 | 【S】 | コンシューマ移行完了後 |
-| CLAUDE.md のアーキテクチャ記述を新構成へ全面更新 | 【O】 | |
-
-> ⚠️ 要判断: shim 除去はコンシューマ側(`../file_rename/`)の同時修正が必要。フェーズ 6 と同一 PR にするか、shim をもう 1 バージョン残すか。
+| 公開 API の設計: `__init__.py` に `extract_titles`, `TitleInput`, `TitleResult`, `LLMClient`, `Config`, `__version__`, `__all__` | 【F】 | ✅ |
+| パッケージングの正常化: `[build-system]`(uv_build)を追加し、モジュールを `src/mv2title/` へ移動。`uv sync` で editable インストールされ、`uv run mv2title` / `python -m mv2title` が機能 | 【F】設計 → 【O】実施 | ✅ |
+| dual-import shim(`try: from . import ...`)の除去、パッケージ内 import の相対統一 | 【S】 | ✅ |
+| フェーズ 2〜3 の互換シム(`connect.init()` / `send_message()` / `main_json` シム)の最終削除 | 【S】 | ✅ コンシューマ移行(フェーズ 6)と同時に実施 |
+| CLAUDE.md のアーキテクチャ記述を新構成へ全面更新 | 【O】 | ✅ |
 
 ---
 
@@ -156,14 +154,14 @@
 
 ---
 
-## フェーズ 6(任意): コンシューマ移行
+## フェーズ 6: コンシューマ移行 ✅ 実施済み (2026-07-02)
 
-リポジトリ外(`../file_rename/`)のため本体とは別作業。
+リポジトリ外(`../file_rename/`、独立 git リポジトリ)。コミット `da91671`。
 
-| タスク | 委譲 | 備考 |
+| タスク | 委譲 | 状態 |
 |---|---|---|
-| `rename.py` / `download.py`: `sys.path.insert` を editable install(`uv pip install -e`)に置換し、新 API(`extract_titles` + `LLMClient`)へ移行 | 【O】 | |
-| `file_rename/` に独自 `pyproject.toml` を作成し、`mutagen` / `yt-dlp` / mv2title(パス依存)を宣言 | 【O】 | フェーズ 0 メモの「uv sync が未宣言依存を消す」問題の恒久対策 |
+| `rename.py` / `download.py`: `sys.path.insert` を廃止し、新 API(`extract_titles` + `LLMClient(Config.from_env())`)へ移行 | 【O】 | ✅ `rename.make_client()` を新設し 2 スクリプトで共用。mv2title/.env の明示読み込みは維持 |
+| `file_rename/` に独自 `pyproject.toml` を作成し、`mutagen` / `yt-dlp` / `python-dotenv` / mv2title(editable パス依存)を宣言 | 【O】 | ✅ `uv sync` で専用 venv を構築。フェーズ 0 メモの「uv sync が未宣言依存を消す」問題は解消(mv2title 側 venv に mutagen 等は不要になった) |
 
 ---
 

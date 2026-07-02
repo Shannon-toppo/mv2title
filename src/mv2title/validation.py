@@ -5,10 +5,7 @@ import re
 import unicodedata
 from typing import Any
 
-try:
-	from .models import TitleResult
-except ImportError:
-	from models import TitleResult  # type: ignore
+from .models import TitleResult
 
 logger = logging.getLogger(__name__)
 

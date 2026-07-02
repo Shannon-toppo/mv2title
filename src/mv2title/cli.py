@@ -17,13 +17,9 @@ import logging
 import sys
 from typing import Any
 
-try:
-	from . import connect, pipeline
-	from .models import TitleInput
-except ImportError:
-	import connect  # type: ignore
-	import pipeline  # type: ignore
-	from models import TitleInput  # type: ignore
+from . import pipeline
+from .connect import Config, LLMClient
+from .models import TitleInput
 
 
 def _read_input_json(path: str) -> tuple[list[str], list[str | None]]:
@@ -193,16 +189,16 @@ def main(argv: list[str] | None = None) -> int:
 	if args.channel:
 		channels = [args.channel] * len(titles)
 
-	# 未指定の項目は connect.init() 側で環境変数(.env)へフォールバックする。
-	init_kwargs: dict[str, Any] = {}
+	# 未指定の項目は Config.from_env() が環境変数(.env)へフォールバックする。
+	config_kwargs: dict[str, Any] = {}
 	if args.base_url:
-		init_kwargs["base_url"] = args.base_url
+		config_kwargs["base_url"] = args.base_url
 	if args.timeout is not None:
-		init_kwargs["timeout"] = args.timeout
+		config_kwargs["timeout"] = args.timeout
 	if args.model:
-		init_kwargs["model"] = args.model
+		config_kwargs["model"] = args.model
 	try:
-		client = connect.init(**init_kwargs)
+		client = LLMClient(Config.from_env(**config_kwargs))
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2

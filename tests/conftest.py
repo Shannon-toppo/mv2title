@@ -1,8 +1,7 @@
 """pytest 共通フィクスチャ。
 
-LLM へは一切接続せず、オフラインで検証する。
-- fake_client: pipeline.extract_titles などへ注入するフェイク LLMClient(推奨)。
-- fake_send: 旧 API 互換シム(main_json)向けに connect.send_message を差し替える。
+LLM へは一切接続せず、fake_client(LLMClient 互換のフェイク)を
+pipeline.extract_titles などへ注入してオフラインで検証する。
 """
 
 from types import SimpleNamespace
@@ -67,34 +66,6 @@ def fake_client():
 				return make_completion(producer(prompt, response_format=response_format))
 
 		state.client = _FakeClient()
-		return state
-
-	return _install
-
-
-@pytest.fixture
-def fake_send(monkeypatch):
-	"""connect.send_message を差し替えるヘルパー(旧 API 互換シムのテスト用)。
-
-	使い方は fake_client と同じ。呼び出し履歴は戻り値オブジェクトの .calls に記録される。
-	"""
-	import mv2title.connect as connect
-
-	def _install(responses):
-		state = SimpleNamespace(calls=[])
-		producer = _make_producer(responses)
-
-		def fake(prompt, system_prompt=None, model_name=None, temperature=0.0, response_format=None, max_tokens=None):
-			state.calls.append(
-				SimpleNamespace(
-					prompt=prompt,
-					response_format=response_format,
-					temperature=temperature,
-				)
-			)
-			return make_completion(producer(prompt, response_format=response_format))
-
-		monkeypatch.setattr(connect, "send_message", fake)
 		return state
 
 	return _install

@@ -137,41 +137,6 @@ def test_send_message_call_args_override_config(monkeypatch):
 	assert captured["temperature"] == 0.7
 
 
-# ---- モジュールレベル互換シム -------------------------------------------------
-
-
-def test_send_message_requires_init(monkeypatch):
-	monkeypatch.setattr(connect, "_default_client", None)
-	with pytest.raises(RuntimeError):
-		connect.send_message("hi")
-
-
-def test_init_builds_default_client(clean_env, monkeypatch):
-	monkeypatch.setenv("BASE_URL", "http://env:1/v1/")
-	client = connect.init(api_key="k", system_prompt="sp", timeout=5.0, max_retries=1)
-	assert connect.get_default_client() is client
-	assert client.config.base_url == "http://env:1/v1/"
-	assert client.config.system_prompt == "sp"
-	assert client._client.timeout == 5.0
-	assert client._client.max_retries == 1
-
-
-def test_init_rejects_missing_base_url(clean_env):
-	with pytest.raises(ValueError):
-		connect.init()
-	with pytest.raises(ValueError):
-		connect.init(base_url="")
-
-
-def test_module_send_message_delegates_to_default_client(clean_env, monkeypatch):
-	monkeypatch.setenv("BASE_URL", "http://env:1/v1/")
-	client = connect.init(api_key="k")
-	captured = _fake_completions(monkeypatch, client)
-	connect.send_message("hi", max_tokens=32)
-	assert captured["messages"][-1] == {"role": "user", "content": "hi"}
-	assert captured["max_tokens"] == 32
-
-
 # ---- import 時の副作用 ---------------------------------------------------------
 
 
@@ -183,9 +148,9 @@ def test_import_has_no_side_effects(tmp_path):
 	import os
 	from pathlib import Path
 
-	code = "import mv2title.connect as c; assert c._default_client is None; print('ok')"
+	code = "import mv2title.connect; print('ok')"
 	env = {k: v for k, v in os.environ.items() if k.upper() in ("SYSTEMROOT", "PATH", "TEMP", "TMP")}
-	# mv2title パッケージ(= リポジトリルート)の親ディレクトリを import 可能にする
+	# mv2title パッケージ(src/mv2title)の親ディレクトリを import 可能にする
 	env["PYTHONPATH"] = str(Path(connect.__file__).resolve().parent.parent)
 	res = subprocess.run(
 		[sys.executable, "-c", code],

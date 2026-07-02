@@ -30,19 +30,22 @@ def _fake_extract(inputs, client, **kw):
 
 @pytest.fixture
 def fake_pipeline(monkeypatch):
-	"""connect.init と pipeline.extract_titles をモックし、呼び出しを捕捉する。"""
-	state = {"init_kwargs": None, "inputs": None, "kwargs": None, "extract": _fake_extract}
+	"""Config / LLMClient / pipeline.extract_titles をモックし、呼び出しを捕捉する。"""
+	state = {"config_kwargs": None, "inputs": None, "kwargs": None, "extract": _fake_extract}
 
-	def fake_init(**kw):
-		state["init_kwargs"] = kw
-		return object()  # LLMClient の代わりのダミー
+	class _FakeConfig:
+		@staticmethod
+		def from_env(**kw):
+			state["config_kwargs"] = kw
+			return object()  # Config の代わりのダミー
 
 	def fake_extract(inputs, client, **kw):
 		state["inputs"] = list(inputs)
 		state["kwargs"] = kw
 		return state["extract"](inputs, client, **kw)
 
-	monkeypatch.setattr(cli.connect, "init", fake_init)
+	monkeypatch.setattr(cli, "Config", _FakeConfig)
+	monkeypatch.setattr(cli, "LLMClient", lambda config: object())
 	monkeypatch.setattr(cli.pipeline, "extract_titles", fake_extract)
 	return state
 
@@ -136,10 +139,12 @@ def test_main_end_to_end(fake_pipeline, capsys):
 
 
 def test_main_base_url_guard(monkeypatch, capsys):
-	def boom(**kw):
-		raise ValueError("BASE_URL 未設定")
+	class _BoomConfig:
+		@staticmethod
+		def from_env(**kw):
+			raise ValueError("BASE_URL 未設定")
 
-	monkeypatch.setattr(cli.connect, "init", boom)
+	monkeypatch.setattr(cli, "Config", _BoomConfig)
 	rc = cli.main(["x"])
 	assert rc == 2
 	assert "BASE_URL" in capsys.readouterr().err
@@ -168,21 +173,21 @@ def test_main_preprocess_enabled_by_default(fake_pipeline):
 	assert fake_pipeline["kwargs"]["retry_invalid"] == 1
 
 
-def test_main_passes_timeout_to_init(fake_pipeline):
+def test_main_passes_timeout_to_config(fake_pipeline):
 	assert cli.main(["--timeout", "5", "x"]) == 0
-	assert fake_pipeline["init_kwargs"]["timeout"] == 5.0
+	assert fake_pipeline["config_kwargs"]["timeout"] == 5.0
 
 
 def test_main_omits_timeout_when_not_given(fake_pipeline):
-	# timeout 未指定時は init に渡さず、connect 側の既定値に任せる
+	# timeout 未指定時は Config に渡さず、既定値に任せる
 	assert cli.main(["x"]) == 0
-	assert "timeout" not in fake_pipeline["init_kwargs"]
+	assert "timeout" not in fake_pipeline["config_kwargs"]
 
 
-def test_main_passes_model_and_base_url_to_init(fake_pipeline):
+def test_main_passes_model_and_base_url_to_config(fake_pipeline):
 	assert cli.main(["--model", "my-model", "--base-url", "http://x/v1/", "x"]) == 0
-	assert fake_pipeline["init_kwargs"]["model"] == "my-model"
-	assert fake_pipeline["init_kwargs"]["base_url"] == "http://x/v1/"
+	assert fake_pipeline["config_kwargs"]["model"] == "my-model"
+	assert fake_pipeline["config_kwargs"]["base_url"] == "http://x/v1/"
 
 
 def test_main_writes_output_file(fake_pipeline, tmp_path):

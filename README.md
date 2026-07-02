@@ -7,7 +7,7 @@ YoutubeなどのMVのタイトルから、曲名を推測するライブラリ�
 また、LLMの出力の正当性を検証します。
 
 ### 準備
-1. このライブラリを使用したい場所に置く。
+1. 使う側のプロジェクトの `pyproject.toml` に path 依存として宣言する（`[tool.uv.sources] mv2title = { path = "...", editable = true }`）。このリポジトリ内で試すだけなら `uv sync` で editable インストールされます。
 2. LM studioやllama.cppなどでLLMをホストする。
 3. リポジトリ直下に `.env` を作成し、以下のキーを設定する（`BASE_URL` のみ必須）。
    ```
@@ -44,7 +44,7 @@ results = extract_titles(
 # => [TitleResult(index=1, ..., title="アイドル", valid=True)]
 ```
 
-旧 API の `main_json.main()`（dict のリストを返す・事前に `connect.init()` が必要）は互換シムとして残っていますが、`DeprecationWarning` が出ます。将来のリリースで削除予定です。
+旧 API（`main_json.main()` / `connect.init()` / `connect.send_message()`）は **0.3.0 で削除されました**。上記の `extract_titles()` + `LLMClient` へ移行してください。
 
 LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-community/gemma-4-E2B-it-GGUF))を使用しました。
 
@@ -114,8 +114,8 @@ mv2title --input-json titles.json --format titles
 ### 今後の開発方針（Roadmap）
 実装予定だが未着手の項目:
 
-1. **配布形態の改善** — 消費者スクリプト（`../file_rename/` など）が `sys.path` 操作でパッケージを参照している現状を、editable インストール（`uv pip install -e`）に置き換える。あわせて `mutagen` / `yt-dlp` を optional-dependencies（extras。例: `mv2title[rename]`）として宣言する。
-2. **pydantic によるレスポンスモデル化** — `_parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
+1. **pydantic によるレスポンスモデル化** — `parsing.parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
+2. **パースフォールバックの削減** — `ast.literal_eval` / カンマ分割フォールバックは発動時に warning を記録している。実運用で発動実績が無いことを確認できたら削除する。
 
 ### ライセンス
 MIT

@@ -3,10 +3,6 @@
 `Config`(接続設定)と `LLMClient`(クライアント本体)が中心。
 import 時の副作用は無く、`.env` / 環境変数の読み込みは `Config.from_env()` を
 呼んだときに初めて行われる。
-
-旧 API 互換のため、モジュールレベルの `init()` / `send_message()` も残している
-(内部で共有のデフォルトクライアントに委譲する)。新規コードは `LLMClient` を
-直接使うこと。
 """
 
 import os
@@ -123,68 +119,6 @@ class LLMClient:
 			kwargs["max_tokens"] = max_tokens
 
 		return self._client.chat.completions.create(**kwargs)
-
-
-# --- 旧 API 互換のモジュールレベル シム --------------------------------------
-# main_json などの既存呼び出し元のための共有デフォルトクライアント。
-# フェーズ 3 でクライアント注入へ移行した後、DeprecationWarning を付与して
-# 1 バージョン後に削除する(docs/refactoring-plan.md 参照)。
-
-_default_client: LLMClient | None = None
-
-
-def init(
-	api_key: str | None = None,
-	base_url: str | None = None,
-	system_prompt: str | None = None,
-	timeout: float | None = None,
-	max_retries: int | None = None,
-	model: str | None = None,
-) -> LLMClient:
-	"""共有デフォルトクライアントを構築する(旧 API 互換)。
-
-	None の引数は環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)、
-	それも無ければ既定値にフォールバックする。構築したクライアントを返すので、
-	新規コードは戻り値を `LLMClient` として直接使ってもよい。
-	"""
-	global _default_client
-	_default_client = LLMClient(
-		Config.from_env(
-			api_key=api_key,
-			base_url=base_url,
-			system_prompt=system_prompt,
-			timeout=timeout,
-			max_retries=max_retries,
-			model=model,
-		)
-	)
-	return _default_client
-
-
-def get_default_client() -> LLMClient | None:
-	"""init() で構築した共有デフォルトクライアントを返す(未初期化なら None)。"""
-	return _default_client
-
-
-def send_message(
-	prompt: str,
-	system_prompt: str | None = None,
-	model_name: str | None = None,
-	temperature: float = 0.0,
-	response_format: dict[str, Any] | None = None,
-	max_tokens: int | None = None,
-) -> ChatCompletion:
-	"""共有デフォルトクライアントでメッセージを送信する(旧 API 互換)。"""
-	if _default_client is None:
-		raise RuntimeError("connect.init() を先に呼んでください。")
-	return _default_client.send_message(
-		prompt,
-		system_prompt=system_prompt,
-		model_name=model_name,
-		temperature=temperature,
-		response_format=response_format,
-		max_tokens=max_tokens,
-	)
 
 
 def _selftest(prompt: str = "pingと返答してください。") -> int:
