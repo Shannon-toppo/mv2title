@@ -1,6 +1,10 @@
+[build-system]
+requires = ["uv_build>=0.9,<1.0"]
+build-backend = "uv_build"
+
 [project]
 name = "mv2title"
-version = "0.1.0"
+version = "0.3.0"
 description = "Infer a song title from a noisy music-video title using a local OpenAI-compatible LLM, with output validation."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -15,14 +19,20 @@ mv2title = "mv2title.cli:main"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.400",
     "pytest>=9.0.3",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.0",
 ]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
 
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-indent-width = 4
 
 [tool.ruff.format]
 indent-style = "tab"
@@ -37,12 +47,23 @@ select = [
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
     "W",   # pycodestyle warnings
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "RUF", # ruff 独自ルール
+    "PT",  # flake8-pytest-style
+    "ARG", # 未使用引数
 ]
 ignore = [
-    "E501",  # line-too-long: prose / Japanese comments often exceed; rely on formatter
-    "W191",  # tab indentation is intentional (see [tool.ruff.format])
-    "E101",  # ditto: mixed-with-tabs warning conflicts with tab indent style
+    "E501",   # line-too-long: prose / Japanese comments often exceed; rely on formatter
+    "W191",   # tab indentation is intentional (see [tool.ruff.format])
+    "E101",   # ditto: mixed-with-tabs warning conflicts with tab indent style
+    "RUF001", # ambiguous unicode in strings: 全角文字の処理こそが本ライブラリの本質
+    "RUF002", # ditto (docstrings): 日本語 docstring の全角記号は意図的
+    "RUF003", # ditto (comments): 日本語コメントの全角記号は意図的
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011"]  # allow `assert False` style helpers if any
+# B011: allow `assert False` style helpers if any
+# ARG:  fixture 引数・LLMClient 互換シグネチャのフェイクは未使用引数が正当
+# C408: dict(key=...) ベースのテストデータ構築は可読性優先
+"tests/*" = ["B011", "ARG", "C408"]

@@ -1,10 +1,6 @@
+"""LLM 送信前のルールベース前処理(定型ノイズの除去)。"""
+
 import re
-import unicodedata
-from collections.abc import Iterator
-
-_INDEX_PREFIX = re.compile(r"^\d+\.")
-
-# --- LLM 前のルールベース前処理 ---------------------------------------------
 
 # 括弧内に現れたら「定型ノイズ」とみなすキーワード。
 # 誤除去を避けるため、タイトル本文には出にくい強いキーワードに限定する。
@@ -51,45 +47,3 @@ def clean_title(title: str) -> str:
 	s = _WS_RUN.sub(" ", s)
 	s = _EDGE_SEPARATORS.sub("", s).strip()
 	return s if s else title.strip()
-
-
-def normalize_for_match(s: str) -> str:
-	"""検証用の正規化。NFKC(全角/半角の統一)→ casefold → 空白圧縮を行います。"""
-	return _WS_RUN.sub(" ", unicodedata.normalize("NFKC", s)).casefold().strip()
-
-
-def is_title_match(title: str, *sources: str) -> bool:
-	"""title が sources のいずれかと部分文字列関係にあるか(正規化後に比較)。
-
-	空の title は常に False(空文字列はあらゆる文字列の部分文字列になるため)。
-	"""
-	nt = normalize_for_match(title)
-	if not nt:
-		return False
-	for src in sources:
-		ns = normalize_for_match(src)
-		if nt in ns or (ns and ns in nt):
-			return True
-	return False
-
-
-def edit_title(arr: list[str]) -> list[str]:
-	"""番号を付けたタイトル一覧（例: 1.タイトル）を返します。"""
-	return [f"{i + 1}.{title}" for i, title in enumerate(arr)]
-
-
-def strip_index(title: str) -> str:
-	"""edit_title が付与した先頭の "N." 番号を1つだけ取り除きます（無ければそのまま）。"""
-	return _INDEX_PREFIX.sub("", title, count=1)
-
-
-def read_titles(path: str) -> list[str]:
-	"""1 行 1 タイトルのファイルを読み、前後空白・空行を除いたリストを返します。"""
-	with open(path, encoding="utf-8") as f:
-		return [line.strip() for line in f if line.strip()]
-
-
-def chunk_list[T](lst: list[T], size: int) -> Iterator[list[T]]:
-	"""lst を size 件ずつのサブリストに分割して yield します。"""
-	for i in range(0, len(lst), size):
-		yield lst[i : i + size]

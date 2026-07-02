@@ -7,7 +7,7 @@ YoutubeなどのMVのタイトルから、曲名を推測するライブラリ�
 また、LLMの出力の正当性を検証します。
 
 ### 準備
-1. このライブラリを使用したい場所に置く。
+1. 使う側のプロジェクトの `pyproject.toml` に path 依存として宣言する（`[tool.uv.sources] mv2title = { path = "...", editable = true }`）。このリポジトリ内で試すだけなら `uv sync` で editable インストールされます。
 2. LM studioやllama.cppなどでLLMをホストする。
 3. リポジトリ直下に `.env` を作成し、以下のキーを設定する（`BASE_URL` のみ必須）。
    ```
@@ -20,36 +20,38 @@ YoutubeなどのMVのタイトルから、曲名を推測するライブラリ�
 4. `uv sync` で依存をインストールする。
 
 ### 使い方
-`connect.init()` を呼んでから `main_json.main()` にリスト形式でタイトルを渡すと、**入力と同数・同順**の dict のリスト（`{index, original, title, valid}`）が返ります。
+`connect.init()`（または `LLMClient(Config.from_env())`）でクライアントを作り、`pipeline.extract_titles()` にタイトルのリストと一緒に渡すと、**入力と同数・同順**の `TitleResult`（`index / original / title / valid`）のリストが返ります。
 
 ```python
-from mv2title import connect, main_json
+from mv2title import Config, LLMClient, extract_titles
 
-connect.init()
-results = main_json.main(["アーティスト『曲名』(Official Music Video)"])
-# => [{"index": 1, "original": "アーティスト『曲名』(Official Music Video)",
-#      "title": "曲名", "valid": True}]
+client = LLMClient(Config.from_env())  # .env の BASE_URL などを読み込む
+results = extract_titles(["アーティスト『曲名』(Official Music Video)"], client)
+# => [TitleResult(index=1, original="アーティスト『曲名』(Official Music Video)",
+#                 title="曲名", valid=True)]
+results[0].to_dict()  # 旧 API 互換の dict 形式
 ```
 
-チャンネル名（アーティスト名）が分かっている場合は `channels` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります。
+チャンネル名（アーティスト名）が分かっている場合は `TitleInput` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります（`str` と混在可）。
 
 ```python
-results = main_json.main(
-    ["YOASOBI「アイドル」Official Music Video"],
-    channels=["Official YOASOBI"],
+from mv2title import TitleInput
+
+results = extract_titles(
+    [TitleInput("YOASOBI「アイドル」Official Music Video", "Official YOASOBI")],
+    client,
 )
-# => [{"index": 1, ..., "title": "アイドル", "valid": True}]
+# => [TitleResult(index=1, ..., title="アイドル", valid=True)]
 ```
 
-`channels` はタイトルリストと同じ長さのリストで、各要素にチャンネル名（`str`）または不明時に `None` を指定します。省略時（`channels=None`）は従来どおりチャンネル情報なしで推論します。
+旧 API（`main_json.main()` / `connect.init()` / `connect.send_message()`）は **0.3.0 で削除されました**。上記の `extract_titles()` + `LLMClient` へ移行してください。
 
 LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-community/gemma-4-E2B-it-GGUF))を使用しました。
 
-`main_json.main()` のオプション
+`pipeline.extract_titles()` のオプション
 
 | オプション名 | 初期値 | 備考 |
 |:------------|:-----:|:-----|
-|channels|None|各タイトルに対応するチャンネル名のリスト。アーティスト名のヒントとして LLM プロンプトに含めます。`None` エントリはチャンネル不明を意味します。
 |batch_size|10|入力リストが長い場合に、いくつで分割するかを選択できます。
 |bypass_check|False|検証に失敗しても例外を出さず結果を返します（各項目の `valid` フラグは付与されます）。
 |preprocess|True|LLM 送信前に定型ノイズ（`(Official Music Video)`、`【MV】`、`feat. ～` など）を正規表現で除去します。`False` で無効化できます。
@@ -63,6 +65,10 @@ LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-commun
 |:------------|:-----:|:-----|
 |timeout|120.0|リクエスト全体のタイムアウト秒数。
 |max_retries|2|一時的エラー（接続失敗・429・5xx）時の再試行回数。openai SDK が指数バックオフ付きで処理します。
+|model|環境変数 `MODEL`|使用するモデル名を上書きします。
+|api_key|環境変数 `API_KEY`|未指定でもローカルサーバ向けにプレースホルダを送るため動作します。
+
+未指定の引数は `.env` / 環境変数にフォールバックします（読み込みは `init()` 呼び出し時。import 時の副作用はありません）。
 
 `connect.send_message()` には `max_tokens` も指定できます（省略時はサーバ既定）。
 
@@ -100,19 +106,19 @@ mv2title --input-json titles.json --format titles
 
 全項目が valid かつ件数が一致したときのみ全体を正当と判断します。失敗時は `retry_invalid` 回まで失敗項目のみを再問い合わせし、それでも失敗が残れば `ValueError` を送出します（`bypass_check=True` の場合は送出せずそのまま返します）。
 
-### main_list について（非推奨）
-`main_list.py` は LLM 出力をプレーンなリスト文字列として受け取る旧実装で、現在は呼び出すと `DeprecationWarning` が出ます。将来のリリースで削除予定のため、`main_json` を使用してください。
-
-### 開発（lint / test）
-- `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W`）。
+### 開発（lint / typecheck / test）
+- `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W/SIM/C4/RUF/PT/ARG`）。
 - `uv run ruff format .` — フォーマット。
-- `uv run pytest` — テスト。CI（`.github/workflows/ci.yml`）でも同じコマンドを実行します。
+- `uv run pyright` — 型チェック（`[tool.pyright]`、standard モード）。
+- `uv run pytest` — テスト（`--cov=mv2title` でカバレッジ）。CI（`.github/workflows/ci.yml`）でも同じコマンドを実行します。
+
+変更履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
 ### 今後の開発方針（Roadmap）
 実装予定だが未着手の項目:
 
-1. **配布形態の改善** — 消費者スクリプト（`../file_rename/` など）が `sys.path` 操作でパッケージを参照している現状を、editable インストール（`uv pip install -e`）に置き換える。あわせて `mutagen` / `yt-dlp` を optional-dependencies（extras。例: `mv2title[rename]`）として宣言する。
-2. **pydantic によるレスポンスモデル化** — `_parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
+1. **pydantic によるレスポンスモデル化** — `parsing.parse_json_response` の多段フォールバックと手書きのキー正規化（`new_title`/`name`/`video_title` → `title`）を pydantic モデル + validator に置き換え、パース処理の見通しを良くする。
+2. **パースフォールバックの削減** — `ast.literal_eval` / カンマ分割フォールバックは発動時に warning を記録している。実運用で発動実績が無いことを確認できたら削除する。
 
 ### ライセンス
 MIT

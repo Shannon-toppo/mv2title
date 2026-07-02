@@ -17,11 +17,9 @@ import logging
 import sys
 from typing import Any
 
-try:
-	from . import connect, main_json
-except ImportError:
-	import connect  # type: ignore
-	import main_json  # type: ignore
+from . import pipeline
+from .connect import Config, LLMClient
+from .models import TitleInput
 
 
 def _read_input_json(path: str) -> tuple[list[str], list[str | None]]:
@@ -191,22 +189,25 @@ def main(argv: list[str] | None = None) -> int:
 	if args.channel:
 		channels = [args.channel] * len(titles)
 
-	init_kwargs: dict[str, Any] = {"base_url": args.base_url or connect.url}
+	# 未指定の項目は Config.from_env() が環境変数(.env)へフォールバックする。
+	config_kwargs: dict[str, Any] = {}
+	if args.base_url:
+		config_kwargs["base_url"] = args.base_url
 	if args.timeout is not None:
-		init_kwargs["timeout"] = args.timeout
+		config_kwargs["timeout"] = args.timeout
+	if args.model:
+		config_kwargs["model"] = args.model
 	try:
-		connect.init(**init_kwargs)
+		client = LLMClient(Config.from_env(**config_kwargs))
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2
 
-	if args.model:
-		connect.model = args.model
-
+	inputs = [TitleInput(t, channels[i] if channels else None) for i, t in enumerate(titles)]
 	try:
-		results = main_json.main(
-			titles,
-			channels=channels,
+		results = pipeline.extract_titles(
+			inputs,
+			client,
 			batch_size=args.batch_size,
 			bypass_check=args.bypass_check,
 			debug_mode=args.debug,
@@ -218,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
 		print(f"検証エラー: {e}", file=sys.stderr)
 		return 1
 
-	text = _format_output(results, args.format)
+	text = _format_output([r.to_dict() for r in results], args.format)
 	if args.output:
 		with open(args.output, "w", encoding="utf-8") as f:
 			f.write(text + "\n")

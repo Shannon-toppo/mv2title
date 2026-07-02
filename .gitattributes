@@ -1,0 +1,4 @@
+# ruff format は line-ending = "lf" を強制するため、Windows の core.autocrlf=true で
+# チェックアウトすると全ファイルが CRLF になり `ruff format --check` がローカルで落ちる。
+# テキストファイルは常に LF で取り扱う。
+* text=auto eol=lf
