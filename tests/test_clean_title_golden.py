@@ -13,7 +13,7 @@
 
 import pytest
 
-from mv2title import utils
+from mv2title import preprocess
 
 GOLDEN_CASES = [
 	# --- 日本語圏の典型パターン ---
@@ -74,4 +74,4 @@ GOLDEN_CASES = [
 
 @pytest.mark.parametrize(("title", "expected"), GOLDEN_CASES, ids=[t for t, _ in GOLDEN_CASES])
 def test_clean_title_golden(title: str, expected: str):
-	assert utils.clean_title(title) == expected
+	assert preprocess.clean_title(title) == expected

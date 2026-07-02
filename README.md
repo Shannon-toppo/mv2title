@@ -20,36 +20,38 @@ YoutubeなどのMVのタイトルから、曲名を推測するライブラリ�
 4. `uv sync` で依存をインストールする。
 
 ### 使い方
-`connect.init()` を呼んでから `main_json.main()` にリスト形式でタイトルを渡すと、**入力と同数・同順**の dict のリスト（`{index, original, title, valid}`）が返ります。
+`connect.init()`（または `LLMClient(Config.from_env())`）でクライアントを作り、`pipeline.extract_titles()` にタイトルのリストと一緒に渡すと、**入力と同数・同順**の `TitleResult`（`index / original / title / valid`）のリストが返ります。
 
 ```python
-from mv2title import connect, main_json
+from mv2title import connect, pipeline
 
-connect.init()
-results = main_json.main(["アーティスト『曲名』(Official Music Video)"])
-# => [{"index": 1, "original": "アーティスト『曲名』(Official Music Video)",
-#      "title": "曲名", "valid": True}]
+client = connect.init()  # .env の BASE_URL などを読み込む
+results = pipeline.extract_titles(["アーティスト『曲名』(Official Music Video)"], client)
+# => [TitleResult(index=1, original="アーティスト『曲名』(Official Music Video)",
+#                 title="曲名", valid=True)]
+results[0].to_dict()  # 旧 API 互換の dict 形式
 ```
 
-チャンネル名（アーティスト名）が分かっている場合は `channels` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります。
+チャンネル名（アーティスト名）が分かっている場合は `TitleInput` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります（`str` と混在可）。
 
 ```python
-results = main_json.main(
-    ["YOASOBI「アイドル」Official Music Video"],
-    channels=["Official YOASOBI"],
+from mv2title.models import TitleInput
+
+results = pipeline.extract_titles(
+    [TitleInput("YOASOBI「アイドル」Official Music Video", "Official YOASOBI")],
+    client,
 )
-# => [{"index": 1, ..., "title": "アイドル", "valid": True}]
+# => [TitleResult(index=1, ..., title="アイドル", valid=True)]
 ```
 
-`channels` はタイトルリストと同じ長さのリストで、各要素にチャンネル名（`str`）または不明時に `None` を指定します。省略時（`channels=None`）は従来どおりチャンネル情報なしで推論します。
+旧 API の `main_json.main()`（dict のリストを返す・事前に `connect.init()` が必要）は互換シムとして残っていますが、`DeprecationWarning` が出ます。将来のリリースで削除予定です。
 
 LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-community/gemma-4-E2B-it-GGUF))を使用しました。
 
-`main_json.main()` のオプション
+`pipeline.extract_titles()` のオプション
 
 | オプション名 | 初期値 | 備考 |
 |:------------|:-----:|:-----|
-|channels|None|各タイトルに対応するチャンネル名のリスト。アーティスト名のヒントとして LLM プロンプトに含めます。`None` エントリはチャンネル不明を意味します。
 |batch_size|10|入力リストが長い場合に、いくつで分割するかを選択できます。
 |bypass_check|False|検証に失敗しても例外を出さず結果を返します（各項目の `valid` フラグは付与されます）。
 |preprocess|True|LLM 送信前に定型ノイズ（`(Official Music Video)`、`【MV】`、`feat. ～` など）を正規表現で除去します。`False` で無効化できます。

@@ -18,10 +18,12 @@ import sys
 from typing import Any
 
 try:
-	from . import connect, main_json
+	from . import connect, pipeline
+	from .models import TitleInput
 except ImportError:
 	import connect  # type: ignore
-	import main_json  # type: ignore
+	import pipeline  # type: ignore
+	from models import TitleInput  # type: ignore
 
 
 def _read_input_json(path: str) -> tuple[list[str], list[str | None]]:
@@ -200,15 +202,16 @@ def main(argv: list[str] | None = None) -> int:
 	if args.model:
 		init_kwargs["model"] = args.model
 	try:
-		connect.init(**init_kwargs)
+		client = connect.init(**init_kwargs)
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2
 
+	inputs = [TitleInput(t, channels[i] if channels else None) for i, t in enumerate(titles)]
 	try:
-		results = main_json.main(
-			titles,
-			channels=channels,
+		results = pipeline.extract_titles(
+			inputs,
+			client,
 			batch_size=args.batch_size,
 			bypass_check=args.bypass_check,
 			debug_mode=args.debug,
@@ -220,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
 		print(f"検証エラー: {e}", file=sys.stderr)
 		return 1
 
-	text = _format_output(results, args.format)
+	text = _format_output([r.to_dict() for r in results], args.format)
 	if args.output:
 		with open(args.output, "w", encoding="utf-8") as f:
 			f.write(text + "\n")

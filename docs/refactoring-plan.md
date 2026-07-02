@@ -110,22 +110,22 @@
 
 ---
 
-## フェーズ 3: main_json の分解と型付きデータモデル
+## フェーズ 3: main_json の分解と型付きデータモデル ✅ 実施済み (2026-07-02)
 
-| タスク | 委譲 | 備考 |
+| タスク | 委譲 | 状態 |
 |---|---|---|
-| `models.py`: `TitleInput(title, channel=None)` / `TitleResult(index, original, title, valid)` dataclass + `to_dict()` | 【O】 | `channels` 並行リストと dict 契約の置き換え |
-| `preprocess.py`: `clean_title` と正規表現群を utils から移設 | 【O】 | ゴールデンテストが安全網 |
-| `prompt.py`: `_make_json_prompt` / `_RESPONSE_SCHEMA` / `edit_title` / `strip_index` を移設 | 【O】 | 番号付与は「プロンプトの都合」なので utils から移す |
-| `parsing.py`: `_parse_json_response` / `_extract_json_substring` / キー吸収・index 補正ロジックを移設 | 【O】 | index カスケード防止のコメント・テストごと移す |
-| `validation.py`: `res_check_json` / `is_title_match` / `normalize_for_match` を移設 | 【F】 | 「title を検証し original は比較しない」不変条件に触るため |
-| `pipeline.py`: オーケストレーション(前処理→送信→検証→部分リトライ)+ **`client: LLMClient` 引数の導入**(「caller が init を先に呼ぶ」暗黙の前提を廃止) | 【F】 | 新公開 API の契約設計そのもの |
-| カンマ分割フォールバックの削除判断(フェーズ 1 の計測結果を解釈) | 【F】 | 発動実績ゼロなら削除、`ast.literal_eval` 段は残す |
-| テスト移行: `fake_send` monkeypatch → `LLMClient` のフェイク注入 | 【O】 | |
-| `main_json.py` を旧 API 名の互換シム(`DeprecationWarning`)だけにする | 【S】 | |
-| `utils.py` の解体(残るのは `chunk_list` 程度) | 【S】 | |
+| `models.py`: `TitleInput(title, channel=None)` / `TitleResult(index, original, title, valid)` dataclass + `to_dict()` | 【O】 | ✅ `channels` 並行リストは公開 API から消滅(内部の prompt 境界にのみ残存) |
+| `preprocess.py`: `clean_title` と正規表現群を utils から移設 | 【O】 | ✅ ゴールデンテスト全通過(挙動不変) |
+| `prompt.py`: `make_json_prompt` / `RESPONSE_SCHEMA` / `number_titles`(旧 edit_title) / `strip_index` を移設 | 【O】 | ✅ |
+| `parsing.py`: `parse_json_response` / `normalize_batch_items`(キー吸収・index 補正) | 【O】 | ✅ index カスケード防止のコメント・テストごと移設 |
+| `validation.py`: `check_results`(旧 res_check_json)/ `is_title_match` / `normalize_for_match` | 【F】 | ✅ 「title を検証し original は比較しない」不変条件のコメント・回帰テストを維持 |
+| `pipeline.py`: `extract_titles(titles, client, ...)` — **`LLMClient` 明示注入**(「caller が init を先に呼ぶ」暗黙の前提を廃止) | 【F】 | ✅ |
+| カンマ分割フォールバックの削除判断(フェーズ 1 の計測結果を解釈) | 【F】 | ⏸ **未実施**。実運用での warning 発動実績を確認してから判断(要ユーザー確認) |
+| テスト移行: `fake_send` monkeypatch → `fake_client` フィクスチャ注入 | 【O】 | ✅ 新モジュール別にテストを分割(test_parsing / test_prompt / test_preprocess / test_validation / test_pipeline)。`fake_send` はシムテスト用に縮小して残置 |
+| `main_json.py` を旧 API 名の互換シム(`DeprecationWarning`)だけにする | 【S】 | ✅ `main` / `send_batches_json` / `res_check_json` を警告付き委譲に。旧「init 先呼び」契約はアダプタで維持し、既存コンシューマ(`../file_rename/rename.py`)は無変更で動作 |
+| `utils.py` の解体(残るのは `chunk_list` のみ) | 【S】 | ✅ |
 
-**完了条件**: 全緑 + 旧 API 経由の呼び出しにも Deprecation 警告付きで互換。
+**メモ**: 155 テスト全緑。dict 契約の互換シムは LLM が返した余分なキーを保持しなくなった(index/original/title/valid のみ)。connect のモジュールレベルシムへの DeprecationWarning 付与は、main_json シム(アダプタ経由で使用中)が消えるフェーズ 4 で行う。
 
 ---
 
