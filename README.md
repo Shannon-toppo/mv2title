@@ -23,10 +23,10 @@ YoutubeなどのMVのタイトルから、曲名を推測するライブラリ�
 `connect.init()`（または `LLMClient(Config.from_env())`）でクライアントを作り、`pipeline.extract_titles()` にタイトルのリストと一緒に渡すと、**入力と同数・同順**の `TitleResult`（`index / original / title / valid`）のリストが返ります。
 
 ```python
-from mv2title import connect, pipeline
+from mv2title import Config, LLMClient, extract_titles
 
-client = connect.init()  # .env の BASE_URL などを読み込む
-results = pipeline.extract_titles(["アーティスト『曲名』(Official Music Video)"], client)
+client = LLMClient(Config.from_env())  # .env の BASE_URL などを読み込む
+results = extract_titles(["アーティスト『曲名』(Official Music Video)"], client)
 # => [TitleResult(index=1, original="アーティスト『曲名』(Official Music Video)",
 #                 title="曲名", valid=True)]
 results[0].to_dict()  # 旧 API 互換の dict 形式
@@ -35,9 +35,9 @@ results[0].to_dict()  # 旧 API 互換の dict 形式
 チャンネル名（アーティスト名）が分かっている場合は `TitleInput` で渡すと、LLM がアーティスト名と曲名を区別しやすくなります（`str` と混在可）。
 
 ```python
-from mv2title.models import TitleInput
+from mv2title import TitleInput
 
-results = pipeline.extract_titles(
+results = extract_titles(
     [TitleInput("YOASOBI「アイドル」Official Music Video", "Official YOASOBI")],
     client,
 )

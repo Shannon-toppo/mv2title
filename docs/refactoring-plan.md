@@ -129,13 +129,13 @@
 
 ---
 
-## フェーズ 4: 公開 API の確立とパッケージ整備
+## フェーズ 4: 公開 API の確立とパッケージ整備 🔶 一部実施 (2026-07-02)
 
-バージョン 0.3.0。
+バージョン 0.3.0。**残タスクはコンシューマ同時修正の要判断(下記⚠️)がありユーザー確認待ち。**
 
 | タスク | 委譲 | 備考 |
 |---|---|---|
-| 公開 API の設計: `__init__.py` に `extract_titles`, `TitleInput`, `TitleResult`, `LLMClient`, `Config`, `__version__`, `__all__` | 【F】 | 名前と契約の最終決定 |
+| 公開 API の設計: `__init__.py` に `extract_titles`, `TitleInput`, `TitleResult`, `LLMClient`, `Config`, `__version__`, `__all__` | 【F】 | ✅ 実施済み(追加のみで互換影響なし) |
 | パッケージングの正常化: `[build-system]` を追加し、リポジトリルート=パッケージという特殊レイアウトを解消(モジュールを `src/mv2title/` などへ移動)して `uv run mv2title`(console script)を機能させる | 【F】設計 → 【O】実施 | フェーズ 2 で console script が元から壊れていたことが判明。pytest が動くのはルート `__init__.py` 経由の偶然なので、レイアウト変更時はテストの import 経路も要修正 |
 | dual-import shim(`try: from . import ...`)の除去、パッケージ内 import の相対統一 | 【S】 | コンシューマの editable install 移行(フェーズ 6)が前提。CLAUDE.md の「Preserve it」記述も同時更新 |
 | フェーズ 2〜3 の互換シム(`connect.init()` ラッパ・`main_json` シム)の最終削除 | 【S】 | コンシューマ移行完了後 |
