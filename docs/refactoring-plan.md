@@ -90,21 +90,23 @@
 
 ---
 
-## フェーズ 2: connect.py の再設計 — グローバル状態の排除
+## フェーズ 2: connect.py の再設計 — グローバル状態の排除 ✅ 実施済み (2026-07-02)
 
 最大の構造的負債。ここを直すとテスト・CLI・後続フェーズ全てが楽になる。
 
-| タスク | 委譲 | 備考 |
+| タスク | 委譲 | 状態 |
 |---|---|---|
-| 公開シグネチャの設計確定(`Config` / `LLMClient` のフィールドとメソッド) | 【F】 | 後続タスクの前提。フェーズ 3 の注入設計と整合させる |
-| `Config` dataclass(`base_url`, `api_key`, `model`, `system_prompt`, `timeout`, `max_retries`)+ `Config.from_env()` の実装。**import 時の `load_dotenv()` / 環境変数読みを廃止**し `from_env()` で遅延実行 | 【O】 | BASE_URL 未設定時に明示的に失敗する安全策(api.openai.com への誤送信防止)は維持 |
-| `LLMClient` クラス化: `send_message()` をメソッド化し、モジュール変数 `client` / `_system_prompt` / `model` を内部状態へ吸収 | 【O】 | |
-| 後方互換シム: モジュールレベル `connect.init()` / `send_message()` をデフォルトクライアント委譲の薄いラッパとして 1 バージョン残す(`DeprecationWarning`) | 【O】 | 既存テストの `fake_send`(`connect.send_message` を monkeypatch)がこの間も動くこと |
-| CLI の修正: `connect.model = args.model` のモジュール変数書き換えを廃止し、`Config` 組み立て → `LLMClient` 生成へ | 【O】 | |
-| `_selftest` を `LLMClient` ベースに書き直し | 【S】 | 疎通確認は実用機能なので維持 |
-| 「`import connect` が副作用ゼロ(env 未設定でもエラー・警告なし)」のテスト追加 | 【S】 | |
+| 公開シグネチャの設計確定(`Config` / `LLMClient` のフィールドとメソッド) | 【F】 | ✅ |
+| `Config` frozen dataclass + `Config.from_env()`。**import 時の `load_dotenv()` / 環境変数読みを廃止**し `from_env()` で遅延実行 | 【O】 | ✅ BASE_URL 未設定時の明示的失敗は `__post_init__` で維持 |
+| `LLMClient` クラス化: `send_message()` をメソッド化し、モジュール変数 `client` / `_system_prompt` / `model` を内部状態へ吸収 | 【O】 | ✅ `api_key` 未指定時はプレースホルダを送る改善も実施(openai SDK が None を拒否するため) |
+| 後方互換シム: モジュールレベル `connect.init()` / `send_message()` をデフォルトクライアント(`_default_client`)委譲の薄いラッパとして残す | 【O】 | ✅ **DeprecationWarning の付与はフェーズ 3 完了後に延期**(main_json が内部でまだ使用しており、今付けると正常経路で警告が出るため) |
+| CLI の修正: `connect.model = args.model` のモジュール変数書き換えを廃止し、`init(model=...)` 引数へ | 【O】 | ✅ |
+| `_selftest` を `LLMClient` ベースに書き直し | 【S】 | ✅ |
+| 「`import connect` が副作用ゼロ(env 未設定でもエラーなし)」の subprocess テスト追加 | 【S】 | ✅ |
 
-**完了条件**: 全緑 + import 副作用ゼロのテストが通る。
+**メモ**:
+- 挙動変更(意図的): 旧 `init(system_prompt=None)` は「system プロンプトなし」を意味したが、新 API では None =「未指定」として env にフォールバックする。
+- **発見**: `uv run mv2title`(console script)は **元から動かない**。pyproject に `[build-system]` が無くパッケージが venv にインストールされないため。テストが通るのはルートの `__init__.py` により pytest が親ディレクトリを sys.path に挿入するという偶然の産物。恒久対策はフェーズ 4 に追加。140 テスト全緑。
 
 ---
 
@@ -134,6 +136,7 @@
 | タスク | 委譲 | 備考 |
 |---|---|---|
 | 公開 API の設計: `__init__.py` に `extract_titles`, `TitleInput`, `TitleResult`, `LLMClient`, `Config`, `__version__`, `__all__` | 【F】 | 名前と契約の最終決定 |
+| パッケージングの正常化: `[build-system]` を追加し、リポジトリルート=パッケージという特殊レイアウトを解消(モジュールを `src/mv2title/` などへ移動)して `uv run mv2title`(console script)を機能させる | 【F】設計 → 【O】実施 | フェーズ 2 で console script が元から壊れていたことが判明。pytest が動くのはルート `__init__.py` 経由の偶然なので、レイアウト変更時はテストの import 経路も要修正 |
 | dual-import shim(`try: from . import ...`)の除去、パッケージ内 import の相対統一 | 【S】 | コンシューマの editable install 移行(フェーズ 6)が前提。CLAUDE.md の「Preserve it」記述も同時更新 |
 | フェーズ 2〜3 の互換シム(`connect.init()` ラッパ・`main_json` シム)の最終削除 | 【S】 | コンシューマ移行完了後 |
 | CLAUDE.md のアーキテクチャ記述を新構成へ全面更新 | 【O】 | |

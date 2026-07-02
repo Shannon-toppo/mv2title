@@ -63,6 +63,10 @@ LLMにはgemma4-e2b-it(Q4)([Hugging Face](https://huggingface.co/lmstudio-commun
 |:------------|:-----:|:-----|
 |timeout|120.0|リクエスト全体のタイムアウト秒数。
 |max_retries|2|一時的エラー（接続失敗・429・5xx）時の再試行回数。openai SDK が指数バックオフ付きで処理します。
+|model|環境変数 `MODEL`|使用するモデル名を上書きします。
+|api_key|環境変数 `API_KEY`|未指定でもローカルサーバ向けにプレースホルダを送るため動作します。
+
+未指定の引数は `.env` / 環境変数にフォールバックします（読み込みは `init()` 呼び出し時。import 時の副作用はありません）。
 
 `connect.send_message()` には `max_tokens` も指定できます（省略時はサーバ既定）。
 

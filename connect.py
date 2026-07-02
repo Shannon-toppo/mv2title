@@ -1,58 +1,169 @@
+"""OpenAI 互換エンドポイントへの接続層。
+
+`Config`(接続設定)と `LLMClient`(クライアント本体)が中心。
+import 時の副作用は無く、`.env` / 環境変数の読み込みは `Config.from_env()` を
+呼んだときに初めて行われる。
+
+旧 API 互換のため、モジュールレベルの `init()` / `send_message()` も残している
+(内部で共有のデフォルトクライアントに委譲する)。新規コードは `LLMClient` を
+直接使うこと。
+"""
+
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
-client: OpenAI | None = None
-_system_prompt: str | None = None
-
-load_dotenv()
-
-key: str | None = os.getenv("API_KEY")
-url: str | None = os.getenv("BASE_URL")
-sys_pmt: str | None = os.getenv("SYSTEM_PROMPT")
-model: str = os.getenv("MODEL", "gemma-4-e2b-it")
-
+DEFAULT_MODEL = "gemma-4-e2b-it"
 # ローカル LLM は応答が遅いことがあるため、OpenAI 既定 (600s) より短いが余裕のある値。
 DEFAULT_TIMEOUT: float = 120.0
 # openai SDK が接続エラー・429・5xx を指数バックオフ付きで再試行する回数。
 DEFAULT_MAX_RETRIES: int = 2
 
 
-def init(
-	api_key: str | None = key,
-	base_url: str | None = url,
-	system_prompt: str | None = sys_pmt,
-	timeout: float = DEFAULT_TIMEOUT,
-	max_retries: int = DEFAULT_MAX_RETRIES,
-) -> None:
+@dataclass(frozen=True)
+class Config:
+	"""LLM 接続設定。環境変数から作る場合は `Config.from_env()` を使う。
+
+	Attributes:
+		base_url: OpenAI 互換 API のベース URL(必須)。
+		api_key: API キー。ローカルサーバーなら任意の文字列で可。
+		model: 使用するモデル名。
+		system_prompt: 既定の system プロンプト(任意)。
+		timeout: リクエスト全体のタイムアウト秒数。
+		max_retries: 一時的エラー時の再試行回数(SDK が指数バックオフで処理)。
 	"""
-	クライアント初期化
-	Args:
-		api_key (str): APIキー。ローカルサーバーなら適当で可
-		base_url (str): APIのベースURL
-		system_prompt (str|None): 初期の system プロンプト（任意）
-		timeout (float): リクエスト全体のタイムアウト秒数
-		max_retries (int): 一時的エラー時の再試行回数（SDK が指数バックオフで処理）
-	"""
-	global client, _system_prompt
-	if not base_url:
-		# base_url が None/空だと OpenAI() は本番 (api.openai.com) へフォールバックする。
-		# 本ライブラリはローカル OpenAI 互換サーバ前提のため、誤送信を防いで明示的に失敗させる。
-		raise ValueError(
-			"BASE_URL が未設定です。ローカル LLM のエンドポイント"
-			"（例: http://127.0.0.1:1234/v1/）を .env の BASE_URL に設定するか、"
-			"init(base_url=...) で明示してください。"
+
+	base_url: str
+	api_key: str | None = None
+	model: str = DEFAULT_MODEL
+	system_prompt: str | None = None
+	timeout: float = DEFAULT_TIMEOUT
+	max_retries: int = DEFAULT_MAX_RETRIES
+
+	def __post_init__(self) -> None:
+		if not self.base_url:
+			# base_url が None/空だと OpenAI() は本番 (api.openai.com) へフォールバックする。
+			# 本ライブラリはローカル OpenAI 互換サーバ前提のため、誤送信を防いで明示的に失敗させる。
+			raise ValueError(
+				"BASE_URL が未設定です。ローカル LLM のエンドポイント"
+				"（例: http://127.0.0.1:1234/v1/）を .env の BASE_URL に設定するか、"
+				"base_url 引数で明示してください。"
+			)
+
+	@classmethod
+	def from_env(cls, **overrides: Any) -> "Config":
+		""".env と環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)から構築する。
+
+		overrides に None を渡した項目は「未指定」とみなし、環境変数
+		(それも無ければ dataclass の既定値)にフォールバックする。
+		"""
+		load_dotenv()
+		values: dict[str, Any] = {
+			"base_url": os.getenv("BASE_URL"),
+			"api_key": os.getenv("API_KEY"),
+			"system_prompt": os.getenv("SYSTEM_PROMPT"),
+			"model": os.getenv("MODEL", DEFAULT_MODEL),
+		}
+		values.update({k: v for k, v in overrides.items() if v is not None})
+		return cls(**values)
+
+
+class LLMClient:
+	"""OpenAI 互換クライアントの薄いラッパ。設定は `Config` で注入する。"""
+
+	def __init__(self, config: Config) -> None:
+		self.config = config
+		self._client = OpenAI(
+			# openai SDK は api_key=None を拒否するが、ローカル OpenAI 互換サーバは
+			# キーを検証しないことが多いため、未指定ならプレースホルダを渡す。
+			api_key=config.api_key or "not-needed",
+			base_url=config.base_url,
+			timeout=config.timeout,
+			max_retries=config.max_retries,
 		)
-	_system_prompt = system_prompt
-	client = OpenAI(
-		api_key=api_key,
-		base_url=base_url,
-		timeout=timeout,
-		max_retries=max_retries,
+
+	def send_message(
+		self,
+		prompt: str,
+		system_prompt: str | None = None,
+		model_name: str | None = None,
+		temperature: float = 0.0,
+		response_format: dict[str, Any] | None = None,
+		max_tokens: int | None = None,
+	) -> ChatCompletion:
+		"""メッセージを送信する。
+
+		Args:
+			prompt: ユーザーメッセージ
+			system_prompt: 呼び出しごとに指定する system プロンプト(省略時は Config の値)
+			model_name: 使用するモデル名(省略時は Config の値)
+			temperature: サンプリング温度。抽出タスクのため既定は 0.0(決定的)
+			response_format: OpenAI 互換の構造化出力指定(例: json_schema / json_object)。
+				省略時は通常のテキスト応答。
+			max_tokens: 応答の最大トークン数。省略時はサーバ既定。
+		"""
+		sp = system_prompt if system_prompt is not None else self.config.system_prompt
+		messages: list[dict[str, str]] = []
+		if sp:
+			messages.append({"role": "system", "content": sp})
+		messages.append({"role": "user", "content": prompt})
+
+		kwargs: dict[str, Any] = {
+			"model": model_name if model_name is not None else self.config.model,
+			"messages": messages,
+			"temperature": temperature,
+		}
+		if response_format is not None:
+			kwargs["response_format"] = response_format
+		if max_tokens is not None:
+			kwargs["max_tokens"] = max_tokens
+
+		return self._client.chat.completions.create(**kwargs)
+
+
+# --- 旧 API 互換のモジュールレベル シム --------------------------------------
+# main_json などの既存呼び出し元のための共有デフォルトクライアント。
+# フェーズ 3 でクライアント注入へ移行した後、DeprecationWarning を付与して
+# 1 バージョン後に削除する(docs/refactoring-plan.md 参照)。
+
+_default_client: LLMClient | None = None
+
+
+def init(
+	api_key: str | None = None,
+	base_url: str | None = None,
+	system_prompt: str | None = None,
+	timeout: float | None = None,
+	max_retries: int | None = None,
+	model: str | None = None,
+) -> LLMClient:
+	"""共有デフォルトクライアントを構築する(旧 API 互換)。
+
+	None の引数は環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)、
+	それも無ければ既定値にフォールバックする。構築したクライアントを返すので、
+	新規コードは戻り値を `LLMClient` として直接使ってもよい。
+	"""
+	global _default_client
+	_default_client = LLMClient(
+		Config.from_env(
+			api_key=api_key,
+			base_url=base_url,
+			system_prompt=system_prompt,
+			timeout=timeout,
+			max_retries=max_retries,
+			model=model,
+		)
 	)
+	return _default_client
+
+
+def get_default_client() -> LLMClient | None:
+	"""init() で構築した共有デフォルトクライアントを返す(未初期化なら None)。"""
+	return _default_client
 
 
 def send_message(
@@ -63,38 +174,17 @@ def send_message(
 	response_format: dict[str, Any] | None = None,
 	max_tokens: int | None = None,
 ) -> ChatCompletion:
-	"""
-	メッセージを送信する。
-
-	Args:
-		prompt (str): ユーザーメッセージ
-		system_prompt (str|None): 呼び出しごとに指定する system プロンプト（省略時はグローバルを使用）
-		model_name (str|None): 使用するモデル名（省略時はモジュール変数 model = 環境変数 MODEL を使用）
-		temperature (float): サンプリング温度。抽出タスクのため既定は 0.0（決定的）
-		response_format (dict|None): OpenAI 互換の構造化出力指定（例: json_schema / json_object）。
-			省略時は通常のテキスト応答。
-		max_tokens (int|None): 応答の最大トークン数。省略時はサーバ既定。
-	"""
-	if client is None:
+	"""共有デフォルトクライアントでメッセージを送信する(旧 API 互換)。"""
+	if _default_client is None:
 		raise RuntimeError("connect.init() を先に呼んでください。")
-	sp = system_prompt if system_prompt is not None else _system_prompt
-	messages: list[dict[str, str]] = []
-	if sp:
-		messages.append({"role": "system", "content": sp})
-	messages.append({"role": "user", "content": prompt})
-
-	kwargs: dict[str, Any] = {
-		# 既定引数で束縛せず実行時に解決することで、init 後の connect.model 変更も反映する。
-		"model": model_name if model_name is not None else model,
-		"messages": messages,
-		"temperature": temperature,
-	}
-	if response_format is not None:
-		kwargs["response_format"] = response_format
-	if max_tokens is not None:
-		kwargs["max_tokens"] = max_tokens
-
-	return client.chat.completions.create(**kwargs)
+	return _default_client.send_message(
+		prompt,
+		system_prompt=system_prompt,
+		model_name=model_name,
+		temperature=temperature,
+		response_format=response_format,
+		max_tokens=max_tokens,
+	)
 
 
 def _selftest(prompt: str = "pingと返答してください。") -> int:
@@ -104,21 +194,23 @@ def _selftest(prompt: str = "pingと返答してください。") -> int:
 	"""
 	import time
 
-	print(f"BASE_URL = {url}")
-	print(f"MODEL    = {model}")
-	print(f"API_KEY  = {'(set)' if key else '(empty)'}")
+	try:
+		config = Config.from_env()
+	except ValueError as e:
+		print(f"設定の読み込みに失敗: {e}")
+		return 1
+
+	print(f"BASE_URL = {config.base_url}")
+	print(f"MODEL    = {config.model}")
+	print(f"API_KEY  = {'(set)' if config.api_key else '(empty)'}")
 	print(f"prompt   = {prompt!r}")
 	print("-" * 40)
 
-	try:
-		init()
-	except Exception as e:
-		print(f"init() 失敗: {type(e).__name__}: {e}")
-		return 1
+	client = LLMClient(config)
 
 	t0 = time.perf_counter()
 	try:
-		res = send_message(prompt, max_tokens=64)
+		res = client.send_message(prompt, max_tokens=64)
 	except Exception as e:
 		print(f"send_message() 失敗: {type(e).__name__}: {e}")
 		return 2

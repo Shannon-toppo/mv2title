@@ -191,17 +191,19 @@ def main(argv: list[str] | None = None) -> int:
 	if args.channel:
 		channels = [args.channel] * len(titles)
 
-	init_kwargs: dict[str, Any] = {"base_url": args.base_url or connect.url}
+	# 未指定の項目は connect.init() 側で環境変数(.env)へフォールバックする。
+	init_kwargs: dict[str, Any] = {}
+	if args.base_url:
+		init_kwargs["base_url"] = args.base_url
 	if args.timeout is not None:
 		init_kwargs["timeout"] = args.timeout
+	if args.model:
+		init_kwargs["model"] = args.model
 	try:
 		connect.init(**init_kwargs)
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2
-
-	if args.model:
-		connect.model = args.model
 
 	try:
 		results = main_json.main(
