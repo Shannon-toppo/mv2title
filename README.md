@@ -100,9 +100,6 @@ mv2title --input-json titles.json --format titles
 
 全項目が valid かつ件数が一致したときのみ全体を正当と判断します。失敗時は `retry_invalid` 回まで失敗項目のみを再問い合わせし、それでも失敗が残れば `ValueError` を送出します（`bypass_check=True` の場合は送出せずそのまま返します）。
 
-### main_list について（非推奨）
-`main_list.py` は LLM 出力をプレーンなリスト文字列として受け取る旧実装で、現在は呼び出すと `DeprecationWarning` が出ます。将来のリリースで削除予定のため、`main_json` を使用してください。
-
 ### 開発（lint / test）
 - `uv run ruff check .` — Lint。`pyproject.toml` の `[tool.ruff]` で設定（py3.12 ターゲット、タブ字下げ、line-length=120、ルールセット `E/F/I/UP/B/W`）。
 - `uv run ruff format .` — フォーマット。

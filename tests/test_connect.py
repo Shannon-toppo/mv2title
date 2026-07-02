@@ -19,13 +19,7 @@ def test_init_rejects_empty_base_url():
 def test_init_sets_client_and_system_prompt():
 	connect.init(api_key="k", base_url="http://localhost:1234/v1/", system_prompt="sp")
 	assert connect.client is not None
-	assert connect.get_system_prompt() == "sp"
-
-
-def test_set_system_prompt():
-	connect.init(api_key="k", base_url="http://localhost:1234/v1/")
-	connect.set_system_prompt("new")
-	assert connect.get_system_prompt() == "new"
+	assert connect._system_prompt == "sp"
 
 
 def test_init_configures_timeout_and_retries():

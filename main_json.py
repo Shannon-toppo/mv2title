@@ -120,9 +120,12 @@ def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 			except Exception:
 				if debug:
 					logger.debug("JSON parsing failed even after extracting substring")
-		# フォールバック: Python リテラル風やカンマ区切りの文字列リストを処理
+		# フォールバック: Python リテラル風やカンマ区切りの文字列リストを処理。
+		# main_list 時代の遺産で削除候補のため、発動したら warning で計測する
+		# (docs/refactoring-plan.md フェーズ 3 で発動実績を見て削除判断)。
 		try:
 			parsed = ast.literal_eval(s)
+			logger.warning("parse fallback fired: ast.literal_eval (削除候補の計測ログ)")
 			return parsed
 		except Exception:
 			# 最後の手段: カンマで分割して文字列リストにする
@@ -131,6 +134,7 @@ def _parse_json_response(raw: str | None, debug: bool = False) -> Any:
 			else:
 				s_inner = s
 			parts = [p.strip().strip("\"'") for p in s_inner.split(",") if p.strip()]
+			logger.warning("parse fallback fired: comma-split (削除候補の計測ログ)")
 			return parts
 
 
@@ -362,30 +366,3 @@ def main(
 	if bypass_check or ok:
 		return validated
 	raise ValueError("Output does not match input titles.")
-
-
-if __name__ == "__main__":
-	import os
-
-	# デモ用の入力はリポジトリ管理外の test.json（タイトル＋チャンネル名）から読み込む。
-	# test.json が無ければ従来の test.txt（1 行 1 タイトル）にフォールバックする。
-	_dir = os.path.dirname(__file__)
-	_json_file = os.path.join(_dir, "test.json")
-	_txt_file = os.path.join(_dir, "test.txt")
-
-	if os.path.exists(_json_file):
-		with open(_json_file, encoding="utf-8") as _f:
-			_data = json.load(_f)
-		test_list_2 = [str(item["title"]).strip() for item in _data if str(item.get("title", "")).strip()]
-		test_channels: list[str | None] | None = [
-			str(item["channel"]).strip() if item.get("channel") is not None else None
-			for item in _data
-			if str(item.get("title", "")).strip()
-		]
-	else:
-		test_list_2 = utils.read_titles(_txt_file)
-		test_channels = None
-
-	connect.init()
-	out = main(test_list_2, channels=test_channels, batch_size=10, bypass_check=False, debug_mode=False)
-	print(json.dumps(out, ensure_ascii=False, indent=2))

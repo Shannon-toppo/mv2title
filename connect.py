@@ -55,17 +55,6 @@ def init(
 	)
 
 
-def set_system_prompt(prompt: str | None) -> None:
-	"""グローバルな system プロンプトを設定する。"""
-	global _system_prompt
-	_system_prompt = prompt
-
-
-def get_system_prompt() -> str | None:
-	"""現在のグローバル system プロンプトを返す。"""
-	return _system_prompt
-
-
 def send_message(
 	prompt: str,
 	system_prompt: str | None = None,

@@ -73,19 +73,20 @@
 
 ---
 
-## フェーズ 1: レガシーの削除
+## フェーズ 1: レガシーの削除 ✅ 実施済み (2026-07-02)
 
 土台を触る前に、守るべき面積を減らす。完了時にバージョンを 0.2.0 へ。
 
-| タスク | 委譲 | 備考 |
+| タスク | 委譲 | 状態 |
 |---|---|---|
-| `main_list.py` + `tests/test_main_list.py` の削除 | 【S】 | ブロッカー(File_rename.py)は破棄済み |
-| `connect.set_system_prompt` / `get_system_prompt` の削除(対応テストも) | 【S】 | テスト以外に呼び出し元なし。フェーズ 2 の再設計で置き換わる |
-| `_parse_json_response` のフォールバック発動を `logger.warning` で計測するログ追加 | 【S】 | **即削除はしない**。実運用で発動頻度を観測し、削除判断はフェーズ 3(【F】)で行う |
-| `main_json.py` / (削除前の) `main_list.py` の `__main__` デモブロック削除、README に CLI での同等コマンド(`--input-json` / `-f`)を記載 | 【S】 | `utils.read_titles` が未使用になれば併せて削除 |
-| CLAUDE.md から main_list・デモブロックの記述を削除 | 【S】 | |
+| `main_list.py` + `tests/test_main_list.py` の削除 | 【S】 | ✅ |
+| `connect.set_system_prompt` / `get_system_prompt` の削除(対応テストも) | 【S】 | ✅ |
+| `_parse_json_response` のフォールバック発動を `logger.warning` で計測するログ追加 | 【S】 | ✅ 削除判断はフェーズ 3(【F】)で実運用の発動頻度を見て行う |
+| `main_json.py` の `__main__` デモブロック削除(CLI に一本化)、未使用になった `utils.read_titles` の削除 | 【S】 | ✅ |
+| CLAUDE.md / README から main_list・デモブロックの記述を削除 | 【S】 | ✅ |
+| バージョン 0.2.0 | 【S】 | ✅ |
 
-**完了条件**: 削除分のテストを除き全緑。`grep main_list` がドキュメント含めゼロ件。
+**メモ**: テストは 145 → 132 件(削除したコードのテスト分)。全緑。
 
 ---
 

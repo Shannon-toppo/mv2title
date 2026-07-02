@@ -1,5 +1,3 @@
-import pytest
-
 from mv2title import utils
 
 
@@ -44,17 +42,6 @@ def test_strip_index_roundtrip_with_edit_title():
 	titles = ["曲A", "曲B feat. X", "10秒"]
 	numbered = utils.edit_title(titles)
 	assert [utils.strip_index(t) for t in numbered] == titles
-
-
-def test_read_titles(tmp_path):
-	p = tmp_path / "t.txt"
-	p.write_text("  曲A \n\n曲B\n  \n曲C\n", encoding="utf-8")
-	assert utils.read_titles(str(p)) == ["曲A", "曲B", "曲C"]
-
-
-def test_read_titles_missing(tmp_path):
-	with pytest.raises(FileNotFoundError):
-		utils.read_titles(str(tmp_path / "nope.txt"))
 
 
 # ---- clean_title ------------------------------------------------------------
