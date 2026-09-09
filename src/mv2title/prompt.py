@@ -8,6 +8,9 @@ _INDEX_PREFIX = re.compile(r"^\d+\.")
 
 # 構造化出力 (OpenAI 互換 json_schema) のスキーマ。
 # strict モードはトップレベルがオブジェクトである必要があるため results 配列で包む。
+# make_json_prompt の指示文はこの形と一致させること。「JSON 配列を返せ」と書くと
+# モデルが配列を書き始めたところに文法が {"results": [ を押し付け、要素 1 個で
+# 閉じてしまう(0.4.1 以前の打ち切りバグ)。
 RESPONSE_SCHEMA: dict[str, Any] = {
 	"type": "json_schema",
 	"json_schema": {
@@ -75,9 +78,10 @@ def make_json_prompt(batch: list[str], channels: Sequence[str | None] | None = N
 	p = (
 		"以下は番号付きのタイトル一覧です。\n"
 		f"{channel_hint}"
-		"各入力に対して、次の形式のJSON配列を返してください。"
-		"配列の各要素はオブジェクトで、少なくともキー `index` (整数)、`original` (元の文字列)、`title` (変換後タイトル) を持ってください。\n"
-		"出力は純粋な JSON の配列のみとし、余分な説明文は含めないでください。\n\n"
+		"各入力に対して、キー `results` を持つ JSON オブジェクトを返してください。"
+		"`results` は入力と同数の要素を持つ配列で、各要素は `index` (整数)、"
+		"`original` (元の文字列)、`title` (変換後タイトル) を持ちます。\n"
+		"出力は純粋な JSON のみとし、余分な説明文は含めないでください。\n\n"
 		"入力:\n"
 		f"{items}\n"
 	)

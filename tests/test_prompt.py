@@ -67,3 +67,16 @@ def test_make_json_prompt_empty_channel_treated_as_none():
 	p = prompt.make_json_prompt(batch, channels=channels)
 	assert "チャンネル名" not in p
 	assert "1.title" in p
+
+
+def test_make_json_prompt_matches_response_schema_shape():
+	# 指示文は RESPONSE_SCHEMA が強制する {"results": [...]} と一致していること。
+	# 「JSON配列を返せ」と書くと schema 付きデコードで 1 件目に打ち切られる。
+	p = prompt.make_json_prompt(["1.title"])
+	assert "results" in p
+	assert "JSON配列" not in p
+	assert "配列のみ" not in p
+	schema = prompt.RESPONSE_SCHEMA["json_schema"]["schema"]
+	assert list(schema["properties"]) == ["results"]
+	for key in schema["properties"]["results"]["items"]["required"]:
+		assert key in p
