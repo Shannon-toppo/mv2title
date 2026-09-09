@@ -13,7 +13,7 @@ from .models import TitleInput, TitleResult
 from .pipeline import extract_titles
 
 # pyproject.toml の [project] version と同期させること。
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
 	"Config",

@@ -85,6 +85,34 @@ def test_send_batches_falls_back_when_schema_rejected(fake_client):
 	assert state.calls[1].response_format is None
 
 
+def test_send_batches_latches_off_schema_when_batch_truncated(fake_client):
+	# 200 で返ったが件数が足りない（打ち切り）ときも schema を落とし、
+	# 以降のバッチで毎回 1 件しか返らない無駄打ちを避ける
+	state = fake_client(
+		[
+			_schema_payload([{"index": 1, "title": "A"}]),  # 2 件中 1 件で打ち切り
+			'[{"index":1,"title":"C"},{"index":2,"title":"D"}]',
+		]
+	)
+	prompts = prompt.number_titles(["a", "b", "c", "d"])
+	objs = pipeline.send_batches(prompts, state.client, batch_size=2)
+	assert sorted(o["index"] for o in objs) == [1, 3, 4]
+	assert state.calls[0].response_format is not None
+	assert state.calls[1].response_format is None
+
+
+def test_send_batches_keeps_schema_when_batches_are_complete(fake_client):
+	state = fake_client(
+		[
+			_schema_payload([{"index": 1, "title": "A"}, {"index": 2, "title": "B"}]),
+			_schema_payload([{"index": 1, "title": "C"}, {"index": 2, "title": "D"}]),
+		]
+	)
+	prompts = prompt.number_titles(["a", "b", "c", "d"])
+	pipeline.send_batches(prompts, state.client, batch_size=2)
+	assert [c.response_format is not None for c in state.calls] == [True, True]
+
+
 def test_send_batches_channels_sliced_across_batches(fake_client):
 	state = fake_client(
 		[
@@ -124,14 +152,83 @@ def test_extract_titles_raises_on_validation_failure(fake_client):
 		pipeline.extract_titles(["a song", "b song"], state.client, batch_size=10)
 
 
-def test_extract_titles_bypass_check(fake_client):
-	# 件数不一致でも bypass_check なら例外を出さず返す（リトライもしない）
+def test_extract_titles_bypass_check_retries_missing_items(fake_client):
+	# bypass_check=True でもリトライは走る（bypass_check は最後に投げるかだけを決める）。
+	# 応答が 1 件で打ち切られた（欠けた）項目を、schema なしで問い直して回収する。
+	state = fake_client(
+		[
+			_schema_payload([{"index": 1, "title": "a"}]),  # 2 件中 1 件で打ち切り
+			'[{"index":1,"title":"b"}]',  # プレーンプロンプトなら全件返る
+		]
+	)
+	out = pipeline.extract_titles(["a song", "b song"], state.client, batch_size=10, bypass_check=True)
+	assert [r.title for r in out] == ["a", "b"]
+	assert [r.index for r in out] == [1, 2]
+	assert all(r.valid for r in out)
+	assert len(state.calls) == 2
+	# リトライには欠けた 1 件だけが含まれる
+	assert "b song" in state.calls[1].prompt
+	assert "a song" not in state.calls[1].prompt
+	# 打ち切りは決定的なので、温度ではなく構造化出力を外して問い直す
+	assert state.calls[0].response_format is not None
+	assert state.calls[1].response_format is None
+	assert state.calls[1].temperature == 0.0
+
+
+@pytest.mark.parametrize("bypass_check", [True, False])
+def test_extract_titles_retry_invalid_zero_never_retries(fake_client, bypass_check):
+	# retry_invalid=0 なら bypass_check に関わらずリトライしない
+	# （余計な呼び出しがあれば conftest の fake_client が AssertionError を出す）
 	state = fake_client([_schema_payload([{"index": 1, "title": "a"}])])
+	if bypass_check:
+		out = pipeline.extract_titles(
+			["a song", "b song"], state.client, batch_size=10, bypass_check=True, retry_invalid=0
+		)
+		assert [r.valid for r in out] == [True, False]
+	else:
+		with pytest.raises(ValueError, match="does not match input titles"):
+			pipeline.extract_titles(["a song", "b song"], state.client, batch_size=10, retry_invalid=0)
+	assert len(state.calls) == 1
+
+
+def test_extract_titles_bypass_check_returns_empty_when_retry_also_fails(fake_client):
+	# リトライも失敗したら bypass_check=True では例外を投げず、空のまま返す
+	state = fake_client(
+		[
+			_schema_payload([{"index": 1, "title": "a"}]),
+			_schema_payload([]),  # リトライ分も空応答
+		]
+	)
 	out = pipeline.extract_titles(["a song", "b song"], state.client, batch_size=10, bypass_check=True)
 	assert len(out) == 2
 	assert out[0].title == "a"
 	assert out[0].valid is True
+	assert out[1].title == ""
 	assert out[1].valid is False
+	assert len(state.calls) == 2
+
+
+def test_extract_titles_retry_splits_missing_and_mismatch(fake_client):
+	# 欠け（打ち切り）と不一致（言い換え）は別グループとして送られる。
+	# 欠けは temperature 0.0、不一致は温度を上げる。どちらも schema なし。
+	state = fake_client(
+		[
+			_schema_payload([{"index": 1, "title": "a"}, {"index": 2, "title": "zzz"}]),  # 3 件中 2 件 + 不一致
+			'[{"index":1,"title":"c"}]',  # missing グループ（3 件目）
+			'[{"index":1,"title":"b"}]',  # mismatch グループ（2 件目）
+		]
+	)
+	out = pipeline.extract_titles(["a song", "b song", "c song"], state.client, batch_size=10)
+	assert [r.title for r in out] == ["a", "b", "c"]
+	assert all(r.valid for r in out)
+	assert len(state.calls) == 3
+	assert [c.response_format for c in state.calls[1:]] == [None, None]
+	# missing グループが先、temperature は据え置き
+	assert "c song" in state.calls[1].prompt
+	assert state.calls[1].temperature == 0.0
+	# mismatch グループは同じ出力の再生を避けるため温度を上げる
+	assert "b song" in state.calls[2].prompt
+	assert state.calls[2].temperature > 0.0
 
 
 def test_extract_titles_partial_retry_recovers(fake_client):

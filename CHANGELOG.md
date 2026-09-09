@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 (2026-09-10)
+
+### 修正
+- `bypass_check=True` のとき部分リトライが走らず、欠けた項目が空文字のまま返る問題を修正。`bypass_check` と `retry_invalid` の責務を分離し、`bypass_check` は **最後に `ValueError` を投げるかどうか** だけを制御するようにした。リトライの実施可否は `retry_invalid` が持つ(`retry_invalid=0` で無効)。
+  - 背景: 構造化出力(`response_format`)を付けると、モデルが配列の 1 件目だけ出して停止する。実測(LM Studio + gemma-4-e2b)では `finish_reason=stop` / `completion_tokens=37` / `reasoning_tokens=0` で 1 要素のみ。`response_format` を外すと同条件で全件返る(`reasoning_tokens=555`)。制約付きデコード下では思考トークンを挟めず打ち切られるため、**schema を付ける限り決定的に再現する**。
+  - 症状: `extract_titles(..., batch_size=5, bypass_check=True)` に 2 件以上渡すと 1 件目以外の `title` が空文字で返っていた(`n=5` → 1 件目のみ `valid=True`)。
+- 部分リトライを **常にプレーンプロンプト(`use_schema=False`)** で送るようにした。打ち切りは決定的なので、従来の「温度だけ上げて同じ schema で問い直す」では回復できない。
+- リトライ対象を失敗の質で 2 群に分けるようにした。`missing`(応答にその項目が無く空プレースホルダで埋まった)は 1 回目は `temperature=0.0` のまま(schema を外すだけで回復するため)、2 回目以降と `mismatch`(`title` は返ったが `is_title_match` に落ちた)は `_RETRY_TEMPERATURE`(0.4)で問い直す。
+
+### 変更
+- `send_batches` の構造化出力ラッチを拡張。従来はサーバが `response_format` を **拒否した(例外)** ときだけ以降のバッチで無効化していたが、**200 で返ったが件数が入力より少ない**(打ち切り)場合も同様にラッチするようにした。大きいリストで毎バッチ 1 件しか返らない無駄打ちを避けられる(例: 12 件 / `batch_size=5` のシミュレーションで LLM 呼び出しは 4 回)。打ち切ったバッチ自体の欠落分は `extract_titles` の部分リトライが回収する。
+
+### 互換性
+- `extract_titles` のシグネチャと戻り値の契約(入力と同数・同順)は不変。
+- `bypass_check=True` の呼び出しで LLM への往復が増えることがある(欠けた項目の回収を試みるため)。往復を増やしたくない場合は `retry_invalid=0` を指定する。docstring にも明記した。
+- 利用側(`../file_rename/core.py`)の回避策 `_retry_missing_titles`(空で返った項目だけを `use_schema=False` で拾い直す)は、本修正でライブラリ側が空の項目を返さなくなるため自然に no-op になる。二重リトライにはならないので、動作確認のうえ将来的に削除してよい。
+
 ## 0.3.0 (2026-07-02)
 
 ### 破壊的変更
