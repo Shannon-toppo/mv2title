@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "mv2title"
-version = "0.4.0"
+version = "0.4.1"
 description = "Infer a song title from a noisy music-video title using a local OpenAI-compatible LLM, with output validation."
 readme = "README.md"
 requires-python = ">=3.12"
