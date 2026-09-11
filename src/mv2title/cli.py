@@ -17,6 +17,8 @@ import logging
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
 from . import pipeline
 from .connect import Config, ModelMismatchError, make_client
 from .models import TitleInput
@@ -164,6 +166,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
 	parser = build_parser()
 	args = parser.parse_args(argv)
+
+	# `.env` はコマンドラインの入口でだけ読む(ライブラリ側の Config.from_env は
+	# 環境変数しか見ない。0.5.0 で変更)。
+	load_dotenv()
 
 	logging.basicConfig(
 		level=logging.DEBUG if args.debug else logging.WARNING,

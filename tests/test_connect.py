@@ -9,14 +9,13 @@ import pytest
 from mv2title import connect
 from mv2title.connect import Config, LLMClient
 
-# .env をテストに混入させないため、from_env を使うテストでは load_dotenv を無効化し、
-# 環境変数は monkeypatch で明示的に管理する。
+# from_env は環境変数しか見ない(0.5.0 で .env の読み込みを CLI へ移した)ので、
+# 環境変数を monkeypatch で明示的に管理すればテストは .env から独立する。
 _ENV_KEYS = ("BASE_URL", "API_KEY", "SYSTEM_PROMPT", "MODEL")
 
 
 @pytest.fixture
 def clean_env(monkeypatch):
-	monkeypatch.setattr(connect, "load_dotenv", lambda *a, **kw: None)
 	for key in _ENV_KEYS:
 		monkeypatch.delenv(key, raising=False)
 
@@ -81,6 +80,18 @@ def test_from_env_overrides_beat_env(clean_env, monkeypatch):
 	assert c.base_url == "http://override:2/v1/"
 	assert c.model == "override-model"
 	assert c.timeout == 5.0
+
+
+def test_from_env_does_not_read_dotenv(clean_env, monkeypatch, tmp_path):
+	"""from_env は .env を読まない(読み込みは CLI の責務。0.5.0 の破壊的変更)。
+
+	引数無しの load_dotenv は呼び出し元のソースファイルから親を遡るため、
+	ライブラリ内で呼ぶと利用側が意図しない .env を掴んでしまう。
+	"""
+	(tmp_path / ".env").write_text("BASE_URL=http://dotenv-should-not-be-read:9/v1/\n", encoding="utf-8")
+	monkeypatch.chdir(tmp_path)
+	monkeypatch.setenv("BASE_URL", "http://env:1/v1/")
+	assert Config.from_env().base_url == "http://env:1/v1/"
 
 
 def test_from_env_none_override_falls_back_to_env(clean_env, monkeypatch):

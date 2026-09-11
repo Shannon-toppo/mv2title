@@ -1,8 +1,14 @@
 """OpenAI 互換エンドポイントへの接続層。
 
 `Config`(接続設定)と `LLMClient`(クライアント本体)が中心。
-import 時の副作用は無く、`.env` / 環境変数の読み込みは `Config.from_env()` を
+import 時の副作用は無く、環境変数の読み込みは `Config.from_env()` を
 呼んだときに初めて行われる。
+
+`.env` はライブラリからは読まない(0.5.0 で変更)。`load_dotenv()` は
+引数無しだと **呼び出し元のソースファイル** から親ディレクトリを遡るため、
+利用側アプリが意図しない `mv2title/.env` を掴む事故が起きていた。
+`.env` を使いたい場合は CLI(`cli.main` / `_selftest`)のように利用側で
+`load_dotenv()` を呼ぶか、環境変数を自分で設定すること。
 """
 
 import dataclasses
@@ -56,12 +62,14 @@ class Config:
 
 	@classmethod
 	def from_env(cls, **overrides: Any) -> "Config":
-		""".env と環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)から構築する。
+		"""環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)から構築する。
 
 		overrides に None を渡した項目は「未指定」とみなし、環境変数
 		(それも無ければ dataclass の既定値)にフォールバックする。
+
+		`.env` は読まない。必要なら呼び出し側で `dotenv.load_dotenv()` を
+		先に実行すること(モジュール docstring 参照)。
 		"""
-		load_dotenv()
 		values: dict[str, Any] = {
 			"base_url": os.getenv("BASE_URL"),
 			"api_key": os.getenv("API_KEY"),
@@ -294,6 +302,8 @@ def _selftest(prompt: str = "pingと返答してください。") -> int:
 	"""
 	import time
 
+	# 単体実行はコマンドラインの入口なので、ここで .env を読む(ライブラリは読まない)。
+	load_dotenv()
 	try:
 		config = Config.from_env()
 	except ValueError as e:
