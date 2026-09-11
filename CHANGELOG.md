@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0 (2026-09-12)
+
+### 追加
+- モデル名の解決とモデル差し替えの検出を `connect.py` に追加した。LM Studio は `/models` の一覧と完全一致しない名前を受けても **エラーにせず、ロード中の別モデルで黙って答える**(実測: e4b だけロードした状態で `MODEL=gemma-4-e2b` → 応答の `model` は `google/gemma-4-e4b`。`no-such-model-xyz` ですら答えた。2 つ以上ロード中なら 400 `model_not_found` になるので、サーバの状態に依存する)。
+  - `fetch_model_ids(config, timeout=3.0)` — `GET {base_url}/models` を **urllib** で叩く。openai SDK の `models.list()` はボディをページ型へパースしてしまい、LM Studio が存在しないパス(`BASE_URL` の `/v1` 抜けなど)へ **HTTP 200 でエラー JSON** を返すケースを見分けられないため。ボディが `{"data": [...]}` の形であることまで検証し、駄目なら `ConnectionCheckError`。
+  - `model_aliases(model_id)` / `resolve_model(model, server_ids)` — publisher 省略(`google/gemma-4-e2b` ↔ `gemma-4-e2b`)・`@quant` サフィックス・大小文字の揺れを同一視する。解決は大小文字無視の完全一致が最優先、次に表記ゆれで一致する id が **1 つだけ** のとき。候補が複数(量子化違いが並ぶ等)や一覧に無いときは決めつけず指定のまま返す。エイリアスは **比較専用** で、サーバへ送る名前には使わない。
+  - `ModelCheckedClient` / `ModelMismatchError` — 応答の `model` 欄を要求と突き合わせ、別モデルなら例外。一度不一致を見たら以降は **送信せずに** 同じ例外を投げる。
+  - `make_client(config, *, timeout=3.0)` — id 一覧を取って `config.model` を解決し、`ModelCheckedClient` を返す。一覧が取れなければ解決を諦めてそのまま進む(失敗理由は実際の推論呼び出しで出る)。
+  - `check_endpoint(config, timeout)` — 疎通確認の素材 `(モデル id 一覧, 解決後のモデル名)` を返す。文言の組み立ては GUI / CLI 側に任せる。
+  - 公開 API として `__init__.py` から再エクスポート(`fetch_model_ids` / `model_aliases` / `resolve_model` / `make_client` / `check_endpoint` / `ModelCheckedClient` / `ModelMismatchError` / `ConnectionCheckError`)。
+- `cli.main()` と `connect._selftest` が `make_client` 経由でクライアントを作るようになり、CLI でもモデル解決と差し替え検出が効く。CLI はモデル不一致を終了コード 3 で報告する。
+
+### 変更
+- `pipeline.send_batches` は `ModelMismatchError` を **構造化出力の拒否として扱わない**。従来の `except Exception` はサーバが `response_format` を拒否したとみなして同じバッチをプレーンで再送するため、そのままだと違うモデルにもう一度推論させてしまう。専用の `except` で即時送出する。
+
+### 破壊的変更
+- **`Config.from_env()` が `.env` を読まなくなった。** 引数無しの `load_dotenv()` は **呼び出し元のソースファイル** から親ディレクトリを遡るため、利用側アプリが意図せず `mv2title/.env` を掴む(frozen ビルドでは cwd から遡る)。読み込みは入口の責務とし、`cli.main()` と `connect._selftest` で `load_dotenv()` を呼ぶようにした。`from_env` は `os.environ` のみを見る。
+  - ライブラリとして使う側でこれに依存していた場合は、自分で `dotenv.load_dotenv()` を呼ぶか環境変数を設定すること。`python-dotenv` は引き続き依存に残る。
+  - 利用側 `../file_rename/core.py` は import 時に自前で `.env` を読んでいる(`find_env_file()`)ため影響しない。同リポジトリは次回の変更で自前の `make_client` / `resolve_model` / `_ModelCheckedClient` / `check_connection` をここのものへ差し替える予定。
+
+## 0.4.1 (2026-09-10)
+
+### 修正
+- 構造化出力(`use_schema=True`)で **1 件目しか返らない打ち切り** を修正した。原因はプロンプト文面と `RESPONSE_SCHEMA` の不一致で、`make_json_prompt` が「JSON 配列を返せ」と指示する一方、strict モードの制約からスキーマはトップレベルをオブジェクトにしており `{"results": [...]}` を強制していた。モデルは配列を書き始めたところに文法を押し付けられ、要素 1 個で辻褄を合わせて閉じてしまう。指示文を `results` オブジェクトの形に合わせた。
+  - 実測(LM Studio + gemma-4-e2b, `temperature=0`, 3 件): 旧文面 / `use_schema=True` は calls=2(1/3 件で 0.4.0 の打ち切りラッチが作動)、新文面は calls=1 で 3/3(5 回とも再現)。`make_json_prompt` はスキーマあり/なしの両経路で使われるためプレーン経路も確認した。
+- 文面とスキーマの対応を守るテストを追加し、`RESPONSE_SCHEMA` 直上に理由をコメントで固定した。
+- CLAUDE.md の原因説明を訂正。「制約付きデコードでは思考トークンを挟めない」は誤りで、`reasoning_tokens=0` は原因ではなく症状だった。
+
 ## 0.4.0 (2026-09-10)
 
 ### 修正
