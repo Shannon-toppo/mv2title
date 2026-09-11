@@ -17,8 +17,10 @@ import logging
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
 from . import pipeline
-from .connect import Config, LLMClient
+from .connect import Config, ModelMismatchError, make_client
 from .models import TitleInput
 
 
@@ -165,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
 	parser = build_parser()
 	args = parser.parse_args(argv)
 
+	# `.env` はコマンドラインの入口でだけ読む(ライブラリ側の Config.from_env は
+	# 環境変数しか見ない。0.5.0 で変更)。
+	load_dotenv()
+
 	logging.basicConfig(
 		level=logging.DEBUG if args.debug else logging.WARNING,
 		format="%(levelname)s:%(name)s:%(message)s",
@@ -198,7 +204,9 @@ def main(argv: list[str] | None = None) -> int:
 	if args.model:
 		config_kwargs["model"] = args.model
 	try:
-		client = LLMClient(Config.from_env(**config_kwargs))
+		# make_client は MODEL をサーバーの /models にある完全な id へ解決し、
+		# 指定と違うモデルが応答したら止めるクライアントを返す。
+		client = make_client(Config.from_env(**config_kwargs))
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2
@@ -215,6 +223,9 @@ def main(argv: list[str] | None = None) -> int:
 			preprocess=not args.no_preprocess,
 			retry_invalid=args.retry,
 		)
+	except ModelMismatchError as e:
+		print(f"モデル不一致: {e}", file=sys.stderr)
+		return 3
 	except ValueError as e:
 		print(f"検証エラー: {e}", file=sys.stderr)
 		return 1

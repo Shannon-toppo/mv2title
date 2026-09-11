@@ -47,7 +47,7 @@ def fake_pipeline(monkeypatch):
 		return state["extract"](inputs, client, **kw)
 
 	monkeypatch.setattr(cli, "Config", _FakeConfig)
-	monkeypatch.setattr(cli, "LLMClient", lambda config: object())
+	monkeypatch.setattr(cli, "make_client", lambda config: object())
 	monkeypatch.setattr(cli.pipeline, "extract_titles", fake_extract)
 	return state
 

@@ -1,11 +1,21 @@
 """OpenAI 互換エンドポイントへの接続層。
 
 `Config`(接続設定)と `LLMClient`(クライアント本体)が中心。
-import 時の副作用は無く、`.env` / 環境変数の読み込みは `Config.from_env()` を
+import 時の副作用は無く、環境変数の読み込みは `Config.from_env()` を
 呼んだときに初めて行われる。
+
+`.env` はライブラリからは読まない(0.5.0 で変更)。`load_dotenv()` は
+引数無しだと **呼び出し元のソースファイル** から親ディレクトリを遡るため、
+利用側アプリが意図しない `mv2title/.env` を掴む事故が起きていた。
+`.env` を使いたい場合は CLI(`cli.main` / `_selftest`)のように利用側で
+`load_dotenv()` を呼ぶか、環境変数を自分で設定すること。
 """
 
+import dataclasses
+import json
 import os
+import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,12 +62,14 @@ class Config:
 
 	@classmethod
 	def from_env(cls, **overrides: Any) -> "Config":
-		""".env と環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)から構築する。
+		"""環境変数(BASE_URL / API_KEY / SYSTEM_PROMPT / MODEL)から構築する。
 
 		overrides に None を渡した項目は「未指定」とみなし、環境変数
 		(それも無ければ dataclass の既定値)にフォールバックする。
+
+		`.env` は読まない。必要なら呼び出し側で `dotenv.load_dotenv()` を
+		先に実行すること(モジュール docstring 参照)。
 		"""
-		load_dotenv()
 		values: dict[str, Any] = {
 			"base_url": os.getenv("BASE_URL"),
 			"api_key": os.getenv("API_KEY"),
@@ -121,6 +133,168 @@ class LLMClient:
 		return self._client.chat.completions.create(**kwargs)
 
 
+class ConnectionCheckError(Exception):
+	"""エンドポイントの疎通確認に失敗した(接続不可・/models 形式でない等)。"""
+
+
+class ModelMismatchError(Exception):
+	"""指定したモデルとは別のモデルが応答した(サーバー側の差し替え)。"""
+
+
+def model_aliases(model_id: str) -> set[str]:
+	"""モデル名の表記ゆれ(publisher 有無・量子化サフィックス・大小文字)を列挙する。
+
+	/models が返す id は publisher 付き(例: "google/gemma-4-e2b")だが、
+	LM Studio の画面や設定では publisher を省いた "gemma-4-e2b" と書かれる。
+	これは「同じモデルを指しているか」を比べるためのもので、サーバーへ送る
+	名前には使わない: LM Studio は省略形を同じモデルに解決するとは限らず、
+	別のモデルがロード中だとそちらで答える(`make_client` 参照)。
+	"""
+	base = model_id.strip().lower().split("@", 1)[0]
+	aliases = {base}
+	if "/" in base:
+		aliases.add(base.rsplit("/", 1)[1])
+	return {a for a in aliases if a}
+
+
+def resolve_model(model: str, server_ids: Sequence[str]) -> str:
+	"""設定のモデル名を、サーバーの一覧にある完全な id へ解決する。
+
+	大小文字違いを除いた完全一致を最優先し、無ければ表記ゆれ(`model_aliases`)
+	で一致する id が 1 つだけのときにそれを返す。候補が複数(量子化違いが
+	並んでいる等)や一覧に無いときは決めつけず、指定をそのまま返す。
+	"""
+	wanted = model.strip()
+	for sid in server_ids:
+		if sid.lower() == wanted.lower():
+			return sid
+	aliases = model_aliases(wanted)
+	matches = [sid for sid in server_ids if model_aliases(sid) & aliases]
+	return matches[0] if len(matches) == 1 else wanted
+
+
+def fetch_model_ids(config: Config, timeout: float = 3.0) -> list[str]:
+	"""GET {base_url}/models でサーバーのモデル id 一覧を取る。
+
+	openai SDK の `models.list()` ではなく urllib を使うのは意図的で、SDK は
+	ボディをページ型へパースしてしまい、LM Studio が存在しないパスへ HTTP 200 で
+	返すエラー JSON(例: BASE_URL の /v1 抜け)を見分けられないため。
+	ステータスコードだけでは判定せず、ボディが /models 応答の形("data" リスト)
+	であることまで確認する。
+
+	Raises:
+		ConnectionCheckError: 接続できない・エラー応答・/models 形式でない。
+	"""
+	url = config.base_url.rstrip("/") + "/models"
+	req = urllib.request.Request(
+		url,
+		headers={"Authorization": f"Bearer {config.api_key or 'not-needed'}"},
+	)
+	try:
+		with urllib.request.urlopen(req, timeout=timeout) as resp:
+			status = getattr(resp, "status", 200)
+			if not 200 <= status < 300:
+				raise ConnectionCheckError(f"エンドポイントがエラーを返しました (HTTP {status})")
+			body = resp.read(65536)
+	except ConnectionCheckError:
+		raise
+	except Exception as e:
+		raise ConnectionCheckError(f"接続できません ({config.base_url}): {e}") from e
+	try:
+		payload = json.loads(body)
+	except ValueError:
+		payload = None
+	if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+		raise ConnectionCheckError(
+			f"応答が OpenAI 互換の /models 形式ではありません ({url})。"
+			"BASE_URL のパス(例: 末尾の /v1)が正しいか確認してください。"
+		)
+	return [m["id"] for m in payload["data"] if isinstance(m, dict) and isinstance(m.get("id"), str)]
+
+
+class ModelCheckedClient(LLMClient):
+	"""応答の model 欄を確かめ、指定と違うモデルが答えたら止める LLMClient。
+
+	`resolve_model` で解決できなかった名前(一覧に無い・候補が複数)でも、
+	サーバーが黙って別のモデルで推論した結果をタイトルとして使わないための
+	最後の砦。一度不一致を見たら以降はリクエストを送らずに同じ例外を投げる
+	(安価な保険。`pipeline.send_batches` 側でも `ModelMismatchError` は
+	構造化出力の拒否と区別して即時送出する)。
+	"""
+
+	def __init__(self, config: Config) -> None:
+		super().__init__(config)
+		self._mismatch: ModelMismatchError | None = None
+
+	def send_message(
+		self,
+		prompt: str,
+		system_prompt: str | None = None,
+		model_name: str | None = None,
+		temperature: float = 0.0,
+		response_format: dict[str, Any] | None = None,
+		max_tokens: int | None = None,
+	) -> ChatCompletion:
+		if self._mismatch is not None:
+			raise self._mismatch
+		res = super().send_message(
+			prompt,
+			system_prompt,
+			model_name,
+			temperature=temperature,
+			response_format=response_format,
+			max_tokens=max_tokens,
+		)
+		requested = model_name if model_name is not None else self.config.model
+		answered = getattr(res, "model", None)
+		if (
+			isinstance(answered, str)
+			and answered
+			and requested
+			and not (model_aliases(requested) & model_aliases(answered))
+		):
+			self._mismatch = ModelMismatchError(
+				f"指定したモデル '{requested}' ではなく '{answered}' が応答しました"
+				"(サーバーが別のモデルに差し替えています)。"
+				f"'{requested}' をロードするか、MODEL をサーバーのモデル一覧にある名前に"
+				"してください。"
+			)
+			raise self._mismatch
+		return res
+
+
+def make_client(config: Config, *, timeout: float = 3.0) -> LLMClient:
+	"""モデル名をサーバーの一覧へ解決したうえで `ModelCheckedClient` を返す。
+
+	LM Studio は一覧の id と完全一致しない名前を受けると、エラーにせず
+	ロード中の別モデルで黙って答える。実測: e4b をロード中に "gemma-4-e2b" を
+	指定 → google/gemma-4-e4b が応答、"google/gemma-4-e2b" を指定 → e2b が
+	JIT ロードされて応答した。一覧が取れないときは解決を諦め、そのままの
+	モデル名で進む(失敗理由は実際の推論呼び出しで出る)。
+	"""
+	try:
+		ids = fetch_model_ids(config, timeout=timeout)
+	except ConnectionCheckError:
+		ids = []
+	model = resolve_model(config.model or "", ids)
+	if model and model != config.model:
+		config = dataclasses.replace(config, model=model)
+	return ModelCheckedClient(config)
+
+
+def check_endpoint(config: Config, timeout: float = 3.0) -> tuple[list[str], str]:
+	"""疎通確認の結果を (モデル id 一覧, 解決後のモデル名) で返す。
+
+	補完呼び出しをしない軽量チェック。文言の組み立ては利用側に任せる
+	(一覧に `config.model` が含まれるかどうかも呼び出し側で判断できる)。
+
+	Raises:
+		ConnectionCheckError: 接続できない・/models 形式でない。
+	"""
+	ids = fetch_model_ids(config, timeout=timeout)
+	return ids, resolve_model(config.model or "", ids)
+
+
 def _selftest(prompt: str = "pingと返答してください。") -> int:
 	"""
 	単体実行用: .env の設定でローカル LLM への疎通を確認する。
@@ -128,6 +302,8 @@ def _selftest(prompt: str = "pingと返答してください。") -> int:
 	"""
 	import time
 
+	# 単体実行はコマンドラインの入口なので、ここで .env を読む(ライブラリは読まない)。
+	load_dotenv()
 	try:
 		config = Config.from_env()
 	except ValueError as e:
@@ -140,7 +316,9 @@ def _selftest(prompt: str = "pingと返答してください。") -> int:
 	print(f"prompt   = {prompt!r}")
 	print("-" * 40)
 
-	client = LLMClient(config)
+	client = make_client(config)
+	if client.config.model != config.model:
+		print(f"MODEL 解決: {config.model} → {client.config.model}")
 
 	t0 = time.perf_counter()
 	try:
