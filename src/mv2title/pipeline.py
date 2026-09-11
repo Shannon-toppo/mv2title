@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from . import parsing, prompt, utils, validation
-from .connect import LLMClient
+from .connect import LLMClient, ModelMismatchError
 from .models import TitleInput, TitleResult
 from .preprocess import clean_title
 
@@ -69,6 +69,10 @@ def send_batches(
 			raw = _send_batch_raw(
 				batch, client, channels=batch_channels, use_schema=schema_enabled, temperature=temperature
 			)
+		except ModelMismatchError:
+			# 指定と違うモデルが答えた場合は構造化出力の拒否ではない。プレーンで
+			# 再送すると同じ別モデルにもう一度推論させてしまうため、そのまま送出する。
+			raise
 		except Exception:
 			if schema_enabled:
 				logger.warning(

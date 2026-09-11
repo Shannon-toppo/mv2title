@@ -1,5 +1,8 @@
 import subprocess
 import sys
+import types
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -162,3 +165,168 @@ def test_import_has_no_side_effects(tmp_path):
 	)
 	assert res.returncode == 0, res.stderr
 	assert "ok" in res.stdout
+
+
+# ---- モデル名の解決と応答モデルの確認 -------------------------------------------
+# (LM Studio は一覧と完全一致しない名前だとロード中の別モデルで黙って答える)
+
+
+def _fake_urlopen(monkeypatch, body: bytes, status: int = 200) -> dict:
+	"""urlopen を status/body 固定のフェイクへ差し替え、リクエスト内容を記録する。"""
+	seen: dict = {}
+
+	http_status = status
+
+	class FakeResp:
+		status = http_status
+
+		def __enter__(self):
+			return self
+
+		def __exit__(self, *a):
+			return False
+
+		def read(self, n=-1):
+			return body
+
+	def fake_urlopen(req, timeout=0):
+		seen["url"] = req.full_url
+		seen["timeout"] = timeout
+		return FakeResp()
+
+	monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+	return seen
+
+
+_SERVER_IDS = ["google/gemma-4-e4b", "google/gemma-4-e2b", "hy-mt2-1.8b@bf16", "hy-mt2-1.8b@8bit"]
+_SERVER_BODY = (
+	b'{"data": [{"id": "google/gemma-4-e4b"}, {"id": "google/gemma-4-e2b"},'
+	b' {"id": "hy-mt2-1.8b@bf16"}, {"id": "hy-mt2-1.8b@8bit"}]}'
+)
+
+
+def _config(base_url="http://127.0.0.1:1234/v1/", model="m1") -> Config:
+	return Config(base_url=base_url, model=model)
+
+
+def test_fetch_model_ids_success(monkeypatch):
+	seen = _fake_urlopen(monkeypatch, b'{"object": "list", "data": [{"id": "m1"}, {"id": "m2"}]}')
+	assert connect.fetch_model_ids(_config(), timeout=1.5) == ["m1", "m2"]
+	# 末尾スラッシュに頑健(//models にならない)で、指定した timeout が使われる
+	assert seen["url"] == "http://127.0.0.1:1234/v1/models"
+	assert seen["timeout"] == 1.5
+
+
+def test_fetch_model_ids_error_json_with_200(monkeypatch):
+	# LM Studio は存在しないパス(/v1 抜けなど)にも HTTP 200 でエラー JSON を
+	# 返すため、ステータスだけ見ると偽陽性になる。ボディ検証で弾く。
+	_fake_urlopen(monkeypatch, b'{"error":"Unexpected endpoint or method. (GET /models)"}')
+	with pytest.raises(connect.ConnectionCheckError, match="/models"):
+		connect.fetch_model_ids(_config(base_url="http://127.0.0.1:1234"))
+
+
+def test_fetch_model_ids_non_json_with_200(monkeypatch):
+	# LLM 以外のサーバ(管理画面など)が HTML を 200 で返すケースも弾く
+	_fake_urlopen(monkeypatch, b"<html>hello</html>")
+	with pytest.raises(connect.ConnectionCheckError):
+		connect.fetch_model_ids(_config())
+
+
+def test_fetch_model_ids_refused(monkeypatch):
+	def boom(req, timeout=0):
+		raise urllib.error.URLError("connection refused")
+
+	monkeypatch.setattr(urllib.request, "urlopen", boom)
+	with pytest.raises(connect.ConnectionCheckError, match="接続できません"):
+		connect.fetch_model_ids(_config())
+
+
+@pytest.mark.parametrize(
+	("model", "expected"),
+	[
+		("gemma-4-e2b", "google/gemma-4-e2b"),  # publisher 省略 → 完全な id
+		("Gemma-4-E2B", "google/gemma-4-e2b"),  # 大小文字の揺れ
+		("google/gemma-4-e2b", "google/gemma-4-e2b"),  # 完全一致
+		("hy-mt2-1.8b@8bit", "hy-mt2-1.8b@8bit"),  # 完全一致は量子化違いより優先
+		("hy-mt2-1.8b", "hy-mt2-1.8b"),  # 候補が複数なら決めつけない
+		("gemma-4-e2b-it", "gemma-4-e2b-it"),  # 一覧に無ければそのまま
+	],
+)
+def test_resolve_model(model, expected):
+	assert connect.resolve_model(model, _SERVER_IDS) == expected
+
+
+def test_resolve_model_without_list():
+	assert connect.resolve_model("gemma-4-e2b", []) == "gemma-4-e2b"
+
+
+@pytest.mark.parametrize(
+	"model",
+	[
+		"gemma-4-e2b",  # publisher 省略(LM Studio の設定画面はこの表記)
+		"Gemma-4-E2B",  # 大文字小文字の揺れ
+		"google/gemma-4-e2b@q4_k_m",  # 量子化サフィックス付き
+		"google/gemma-4-e2b",  # 完全一致
+	],
+)
+def test_model_aliases_match_full_id(model):
+	assert connect.model_aliases(model) & connect.model_aliases("google/gemma-4-e2b")
+
+
+def test_model_aliases_do_not_match_other_model():
+	assert not (connect.model_aliases("gemma-4-e2b") & connect.model_aliases("google/gemma-4-e4b"))
+
+
+def test_check_endpoint_returns_ids_and_resolved_model(monkeypatch):
+	_fake_urlopen(monkeypatch, _SERVER_BODY)
+	ids, resolved = connect.check_endpoint(_config(model="gemma-4-e2b"))
+	assert ids == _SERVER_IDS
+	assert resolved == "google/gemma-4-e2b"
+
+
+def test_make_client_resolves_model(monkeypatch):
+	_fake_urlopen(monkeypatch, _SERVER_BODY)
+	client = connect.make_client(_config(model="gemma-4-e2b"))
+	assert client.config.model == "google/gemma-4-e2b"
+	assert isinstance(client, connect.ModelCheckedClient)
+
+
+def test_make_client_keeps_model_when_list_unavailable(monkeypatch):
+	def boom(req, timeout=0):
+		raise urllib.error.URLError("connection refused")
+
+	monkeypatch.setattr(urllib.request, "urlopen", boom)
+	assert connect.make_client(_config(model="gemma-4-e2b")).config.model == "gemma-4-e2b"
+
+
+def _checked_client(monkeypatch, answered, model="google/gemma-4-e2b"):
+	"""応答の model 欄が answered になる ModelCheckedClient と、送信の記録。"""
+	sent = []
+
+	def fake_send(self, prompt, system_prompt=None, model_name=None, **kwargs):
+		sent.append(kwargs)
+		message = types.SimpleNamespace(content='{"results": [{"id": 1, "title": "Song"}]}')
+		return types.SimpleNamespace(model=answered, choices=[types.SimpleNamespace(message=message)])
+
+	monkeypatch.setattr(LLMClient, "send_message", fake_send)
+	return connect.ModelCheckedClient(_config(model=model)), sent
+
+
+def test_checked_client_rejects_substituted_model(monkeypatch):
+	client, sent = _checked_client(monkeypatch, answered="google/gemma-4-e4b")
+	with pytest.raises(connect.ModelMismatchError) as exc:
+		client.send_message("p")
+	assert "google/gemma-4-e2b" in str(exc.value)
+	assert "google/gemma-4-e4b" in str(exc.value)
+	# 2 回目以降は送らずに同じ理由で止める(違うモデルで推論させない)
+	with pytest.raises(connect.ModelMismatchError):
+		client.send_message("p")
+	assert len(sent) == 1
+
+
+@pytest.mark.parametrize("answered", ["google/gemma-4-e2b", "gemma-4-e2b", None, ""])
+def test_checked_client_accepts_same_model(monkeypatch, answered):
+	"""表記ゆれの範囲の一致と、model 欄を返さないサーバーは通す。"""
+	client, sent = _checked_client(monkeypatch, answered=answered)
+	client.send_message("p")
+	assert len(sent) == 1

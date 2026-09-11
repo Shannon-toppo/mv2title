@@ -18,7 +18,7 @@ import sys
 from typing import Any
 
 from . import pipeline
-from .connect import Config, LLMClient
+from .connect import Config, ModelMismatchError, make_client
 from .models import TitleInput
 
 
@@ -198,7 +198,9 @@ def main(argv: list[str] | None = None) -> int:
 	if args.model:
 		config_kwargs["model"] = args.model
 	try:
-		client = LLMClient(Config.from_env(**config_kwargs))
+		# make_client は MODEL をサーバーの /models にある完全な id へ解決し、
+		# 指定と違うモデルが応答したら止めるクライアントを返す。
+		client = make_client(Config.from_env(**config_kwargs))
 	except ValueError as e:
 		print(f"エラー: {e}", file=sys.stderr)
 		return 2
@@ -215,6 +217,9 @@ def main(argv: list[str] | None = None) -> int:
 			preprocess=not args.no_preprocess,
 			retry_invalid=args.retry,
 		)
+	except ModelMismatchError as e:
+		print(f"モデル不一致: {e}", file=sys.stderr)
+		return 3
 	except ValueError as e:
 		print(f"検証エラー: {e}", file=sys.stderr)
 		return 1

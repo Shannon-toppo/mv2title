@@ -3,6 +3,7 @@ import json
 import pytest
 
 from mv2title import pipeline, prompt
+from mv2title.connect import ModelMismatchError
 from mv2title.models import TitleInput
 
 
@@ -83,6 +84,18 @@ def test_send_batches_falls_back_when_schema_rejected(fake_client):
 	assert len(state.calls) == 2
 	assert state.calls[0].response_format is not None
 	assert state.calls[1].response_format is None
+
+
+def test_send_batches_reraises_model_mismatch_without_retry(fake_client):
+	# モデル差し替えは「サーバが response_format を拒否した」とは別物。
+	# プレーンで再送すると違うモデルにもう一度推論させてしまうので即時送出する。
+	def producer(prompt_text, response_format=None):
+		raise ModelMismatchError("指定したモデル 'a' ではなく 'b' が応答しました")
+
+	state = fake_client(producer)
+	with pytest.raises(ModelMismatchError):
+		pipeline.send_batches(["1.a", "2.b"], state.client, batch_size=2)
+	assert len(state.calls) == 1
 
 
 def test_send_batches_latches_off_schema_when_batch_truncated(fake_client):
